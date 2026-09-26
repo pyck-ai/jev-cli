@@ -77,11 +77,15 @@ jev-mcp is a stdio MCP server: any MCP-compatible client can spawn it
 directly. Two invocation styles work everywhere below:
 
 - **`go run github.com/pyck-ai/jev-mcp@latest`** — no local checkout or build
-  step; Go resolves, builds, and runs the module in one command. `@latest`
-  tracks the newest tagged release; pin `@v0.1.0` or a commit `@<sha>` for
-  reproducible behavior across machines. Requires the Go toolchain and
-  network access to `proxy.golang.org` (or a configured `GOPROXY` mirror) on
-  whatever machine runs it, and re-resolves/compiles on every cold start.
+  step; Go resolves, builds, and runs the module in one command. No tagged
+  release is required for this to work: with no tags, `@latest` resolves to
+  a pseudo-version built from the newest commit on the default branch (Go's
+  own module resolution falls back this way automatically); once tags exist,
+  `@latest` tracks the newest one instead. Pin `@v0.1.0` or a commit `@<sha>`
+  for reproducible behavior across machines regardless. Requires the Go
+  toolchain and network access to `proxy.golang.org` (or a configured
+  `GOPROXY` mirror) on whatever machine runs it, and re-resolves/compiles on
+  every cold start.
 - **A locally built binary** (`go build -o jev-mcp .` — see [Build](#build))
   — no network or toolchain needed at runtime, lower-latency cold start.
   Prefer this for a checked-out working copy you already have.
