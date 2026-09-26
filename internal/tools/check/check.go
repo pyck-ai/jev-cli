@@ -1,0 +1,279 @@
+// Package check implements the jev_check MCP tool: batched true/false
+// judgment of a list of independent propositions using TypeSafe's Jev
+// judgment model's "noul" question type, via OpenRouter's SystemOne API.
+//
+// This is functionally jkudish's jev_noul tool (see the project brief),
+// renamed jev_check in this codebase; "check" was chosen as the package
+// name for the same reason as internal/tools/score's package name
+// matches its tool's short identity, not the full jev_ MCP tool name.
+//
+// This package is a self-registering plugin (see internal/registry's
+// package doc comment for the overall mechanism): its init() function
+// registers a registry.Registrar that wires jev_check onto whatever
+// *mcp.Server main.go passes it at startup.
+//
+// # Batching
+//
+// Every proposition is asked as a separate named "noul" question
+// ("p0", "p1", ...) in a single SystemOne request/client.Ask call, per the
+// project brief's "one HTTP call, many questions" batching pattern -- not
+// one HTTP round trip per proposition.
+//
+// # What is and isn't independently verified
+//
+// The "noul" question/answer shape (criteria as a small label map, answer
+// {"type":"noul","noul":<float>} with no confidence/probabilities field)
+// is exactly what internal/openrouter's package doc comment already
+// documents as a verified-live wire fact from 2026-09-26 -- not
+// independently re-verified here (no OPENROUTER_API_KEY was available in
+// this implementation environment). The auto_accept default of 0.85 and
+// the "likely"/"unlikely"/"uncertain" labeling scheme are taken verbatim
+// from the project brief's citation of jkudish's jev_noul docs.
+package check
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/pyck-ai/jev-mcp/internal/answers"
+	"github.com/pyck-ai/jev-mcp/internal/audit"
+	"github.com/pyck-ai/jev-mcp/internal/budget"
+	"github.com/pyck-ai/jev-mcp/internal/config"
+	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-mcp/internal/registry"
+)
+
+// ToolNameCheck is the MCP tool name registered for CheckHandler, and the
+// key used in config.Config.ToolModelOverrides and audit.Entry.Tool.
+const ToolNameCheck = "jev_check"
+
+// maxPropositions is the project brief's literal cap ("propositions
+// []string (cap 64)").
+const maxPropositions = 64
+
+// defaultAutoAccept is the project brief's literal default for jev_check's
+// auto_accept ("default 0.85, must be > 0.5"). Exposed as an optional
+// input field (AutoAccept); see internal/answers.ResolveThreshold's doc
+// comment for why this codebase treats every "default 0.NN" threshold in
+// the project brief as caller-overridable via an optional input field.
+const defaultAutoAccept = 0.85
+
+// Status values for PropositionResult.Status.
+const (
+	StatusOK              = "ok"
+	StatusInvalidResponse = "invalid_response"
+)
+
+// Action values for PropositionResult.Action.
+const (
+	ActionAuto   = "auto"
+	ActionReview = "review"
+)
+
+// Usage mirrors the token accounting reported by OpenRouter for a call.
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// CheckInput is the jev_check tool's input schema.
+type CheckInput struct {
+	Propositions []string `json:"propositions" jsonschema:"Propositions to check, each judged independently as true or false against optional context. Capped at 64."`
+	Context      string   `json:"context,omitempty" jsonschema:"Optional shared background/context every proposition is judged against."`
+	AutoAccept   float64  `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for a 'likely'/'unlikely' label to count as 'auto' rather than 'review'. Default 0.85."`
+}
+
+// PropositionResult is one proposition's judged result.
+//
+// Callers MUST check Status == "ok" before trusting Probability or Label:
+// per the project's fail-closed requirement, when Status ==
+// "invalid_response" those fields are zero-valued placeholders and Action
+// is forced to "review", never a fabricated verdict.
+type PropositionResult struct {
+	Proposition string  `json:"proposition"`
+	Probability float64 `json:"probability"`
+	// Label is "likely" (Probability >= auto_accept), "unlikely"
+	// (Probability <= 1-auto_accept), or "uncertain" (otherwise) -- see
+	// internal/answers.NoulLabel. Empty when Status != "ok".
+	Label string `json:"label,omitempty"`
+	// Action is "auto" when Label is "likely" or "unlikely" (a confident
+	// verdict either way), else "review" -- including always "review"
+	// when Status == "invalid_response".
+	Action string `json:"action"`
+	Status string `json:"status"`
+}
+
+// CheckOutput is the jev_check tool's output schema.
+type CheckOutput struct {
+	Results        []PropositionResult `json:"results"`
+	Model          string              `json:"model"`
+	Usage          *Usage              `json:"usage"`
+	LatencyMs      int64               `json:"latency_ms"`
+	BudgetExceeded bool                `json:"budget_exceeded,omitempty"`
+}
+
+// CheckHandler implements the jev_check tool.
+type CheckHandler struct {
+	client           *openrouter.Client
+	model            string
+	timeout          time.Duration
+	budget           *budget.Tracker
+	maxUSDPerCall    float64
+	maxUSDPerSession float64
+	auditLog         *audit.Logger
+}
+
+// NewCheckHandler builds a CheckHandler from application dependencies.
+func NewCheckHandler(client *openrouter.Client, cfg config.Config, tracker *budget.Tracker, auditLog *audit.Logger) *CheckHandler {
+	return &CheckHandler{
+		client:           client,
+		model:            cfg.ModelForTool(ToolNameCheck),
+		timeout:          time.Duration(cfg.RequestTimeoutMs) * time.Millisecond,
+		budget:           tracker,
+		maxUSDPerCall:    cfg.Budget.MaxUSDPerCall,
+		maxUSDPerSession: cfg.Budget.MaxUSDPerSession,
+		auditLog:         auditLog,
+	}
+}
+
+func init() {
+	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
+		h := NewCheckHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+		mcp.AddTool(server, &mcp.Tool{
+			Name: ToolNameCheck,
+			Description: "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
+				"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
+				"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
+				"closed per proposition: a malformed or missing answer is reported as " +
+				"status=\"invalid_response\" with action=\"review\", never a fabricated verdict.",
+		}, h.Handle)
+	})
+}
+
+// Handle implements mcp.ToolHandlerFor[CheckInput, CheckOutput].
+func (h *CheckHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in CheckInput) (*mcp.CallToolResult, CheckOutput, error) {
+	start := time.Now()
+
+	if err := validateInput(in); err != nil {
+		return nil, CheckOutput{}, err
+	}
+	autoAccept := answers.ResolveThreshold(in.AutoAccept, defaultAutoAccept)
+
+	inputHash := audit.HashValue(in)
+
+	if h.budget.SessionBudgetExceeded() {
+		err := fmt.Errorf("jev_check: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		h.auditLog.Log(audit.Entry{
+			Tool: ToolNameCheck, Model: h.model, InputStateSHA256: inputHash,
+			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: err.Error(),
+			ItemCount: len(in.Propositions),
+		})
+		return nil, CheckOutput{}, err
+	}
+
+	questions := make(map[string]openrouter.Question, len(in.Propositions))
+	for i, prop := range in.Propositions {
+		questions[questionKey(i)] = openrouter.Question{
+			Type:         "noul",
+			Instructions: fmt.Sprintf("Is the following proposition true?\n\n%s", prop),
+			Criteria: map[string]string{
+				"true":  "the proposition is true",
+				"false": "the proposition is false",
+			},
+		}
+	}
+
+	resp, callErr := h.client.Ask(ctx, h.model, questions, in.Context, h.timeout)
+	latencyMs := time.Since(start).Milliseconds()
+
+	if callErr != nil {
+		h.auditLog.Log(audit.Entry{
+			Tool: ToolNameCheck, Model: h.model, InputStateSHA256: inputHash,
+			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
+			ItemCount: len(in.Propositions),
+		})
+		return nil, CheckOutput{}, fmt.Errorf("jev_check: %w", callErr)
+	}
+
+	out := CheckOutput{Model: resp.Model, LatencyMs: latencyMs}
+	if resp.Usage != nil {
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+	}
+
+	invalidCount := 0
+	out.Results = make([]PropositionResult, len(in.Propositions))
+	for i, prop := range in.Propositions {
+		res := PropositionResult{Proposition: prop}
+		raw, present := resp.Answers[questionKey(i)]
+		v, ok := 0.0, false
+		if present {
+			v, ok = answers.Noul(raw)
+		}
+		if !ok {
+			res.Status = StatusInvalidResponse
+			res.Action = ActionReview
+			invalidCount++
+		} else {
+			res.Status = StatusOK
+			res.Probability = v
+			res.Label = answers.NoulLabel(v, autoAccept)
+			if res.Label == "uncertain" {
+				res.Action = ActionReview
+			} else {
+				res.Action = ActionAuto
+			}
+		}
+		out.Results[i] = res
+	}
+
+	var costUSD *float64
+	if resp.Usage != nil {
+		cost := resp.Usage.Cost
+		h.budget.Add(cost)
+		costUSD = &cost
+		if h.maxUSDPerCall > 0 && cost > h.maxUSDPerCall {
+			out.BudgetExceeded = true
+		}
+	}
+
+	status := "ok"
+	if invalidCount > 0 {
+		status = StatusInvalidResponse
+	}
+	h.auditLog.Log(audit.Entry{
+		Tool: ToolNameCheck, Model: out.Model, InputStateSHA256: inputHash,
+		Status: status, CostUSD: costUSD, LatencyMs: out.LatencyMs, BudgetExceeded: out.BudgetExceeded,
+		ItemCount: len(in.Propositions), InvalidCount: invalidCount,
+	})
+
+	return nil, out, nil
+}
+
+func questionKey(i int) string {
+	return "p" + strconv.Itoa(i)
+}
+
+// validateInput rejects obviously-unusable input before spending any
+// budget or making a network call.
+func validateInput(in CheckInput) error {
+	if len(in.Propositions) == 0 {
+		return fmt.Errorf("jev_check: propositions must not be empty")
+	}
+	if len(in.Propositions) > maxPropositions {
+		return fmt.Errorf("jev_check: too many propositions (%d, max %d)", len(in.Propositions), maxPropositions)
+	}
+	for i, p := range in.Propositions {
+		if strings.TrimSpace(p) == "" {
+			return fmt.Errorf("jev_check: propositions[%d] must not be empty", i)
+		}
+	}
+	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
+		return fmt.Errorf("jev_check: %w", err)
+	}
+	return nil
+}

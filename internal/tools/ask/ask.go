@@ -1,0 +1,356 @@
+// Package ask implements the jev_ask MCP tool: the escape hatch. Unlike
+// every other tool in this codebase, which builds a fixed, purpose-specific
+// question shape from typed input, jev_ask accepts a caller-supplied
+// SystemOne question map almost verbatim -- matching OpenRouter's own
+// "questions" wire shape (see internal/openrouter's package doc comment)
+// nearly 1:1 -- and passes it straight through to a single client.Ask
+// call.
+//
+// This package is a self-registering plugin (see internal/registry's
+// package doc comment for the overall mechanism).
+//
+// # Validate before forwarding
+//
+// Because the caller supplies the raw question shape directly, this
+// handler validates every question's "type" (must be exactly "noul",
+// "choice", or "score") AND that its "criteria" has the shape that type
+// requires (a non-empty JSON object for "noul"/"choice", a non-empty JSON
+// array of strings for "score") BEFORE sending anything to OpenRouter --
+// rejecting the whole call with a clear Go error otherwise, per the
+// project brief's "reject with a clear error otherwise rather than
+// forwarding garbage to the API". maxQuestions (64) is this
+// implementation's own invented safety cap, reusing the same number as
+// internal/tools/check/internal/tools/verify for consistency; the brief
+// did not state one for this tool.
+//
+// # Output: pass through, fail closed per answer
+//
+// Per the project brief, "the same fail-closed validation per answer that
+// jev_score already does for its own type" is applied to every requested
+// question's answer independently: a malformed or missing answer for one
+// question key is reported as that key's AskAnswer.Status ==
+// "invalid_response" (with only Type preserved, so the caller can still
+// see what kind of question it was), while every other key's valid answer
+// is preserved unaffected. Output is built by iterating the ORIGINAL
+// REQUESTED question ids (not resp.Answers' own keys), so a model
+// response naming some unexpected extra key never leaks into the output.
+//
+// # What is and isn't independently verified
+//
+// The "noul"/"choice"/"score" question/answer shapes are verified-live
+// wire facts from 2026-09-26 (see internal/openrouter's package doc
+// comment) -- not independently re-verified here (no OPENROUTER_API_KEY
+// was available in this implementation environment).
+package ask
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/pyck-ai/jev-mcp/internal/answers"
+	"github.com/pyck-ai/jev-mcp/internal/audit"
+	"github.com/pyck-ai/jev-mcp/internal/budget"
+	"github.com/pyck-ai/jev-mcp/internal/config"
+	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-mcp/internal/registry"
+)
+
+// ToolNameAsk is the MCP tool name registered for AskHandler.
+const ToolNameAsk = "jev_ask"
+
+// maxQuestions is this implementation's own invented safety cap (see
+// package doc comment).
+const maxQuestions = 64
+
+// The three known SystemOne question types.
+const (
+	TypeNoul   = "noul"
+	TypeChoice = "choice"
+	TypeScore  = "score"
+)
+
+// Status values for AskAnswer.Status.
+const (
+	StatusOK              = "ok"
+	StatusInvalidResponse = "invalid_response"
+)
+
+// Usage mirrors the token accounting reported by OpenRouter for a call.
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// AskQuestion is one caller-supplied SystemOne question, matching
+// internal/openrouter.Question's wire shape almost 1:1 (see package doc
+// comment). Criteria's required shape depends on Type: a non-empty JSON
+// object ({"<value_or_option_id>": "<description>"}) for "noul"/"choice",
+// or a non-empty JSON array of level-description strings for "score".
+type AskQuestion struct {
+	Type         string `json:"type"`
+	Instructions string `json:"instructions"`
+	Criteria     any    `json:"criteria"`
+}
+
+// AskInput is the jev_ask tool's input schema.
+type AskInput struct {
+	// State is a string, or an arbitrary JSON object/array of related
+	// context -- matching SystemOne's own "state" field flexibility (see
+	// internal/openrouter.Request.State's doc comment).
+	State     any                    `json:"state" jsonschema:"Text or data to be judged: a string, or an arbitrary JSON object/array of related context."`
+	Questions map[string]AskQuestion `json:"questions" jsonschema:"Named SystemOne questions to ask in a single call, keyed by caller-chosen id. Capped at 64 questions."`
+}
+
+// AskAnswer is one requested question's parsed (or fail-closed) answer.
+//
+// Type always reflects what was REQUESTED for this key (from
+// AskInput.Questions), even when Status == "invalid_response". Only the
+// fields relevant to Type are ever populated, and only when
+// Status == "ok": Noul for "noul"; Choice/Confidence/Probabilities for
+// "choice"; Score/Confidence/Probabilities for "score". Every other field
+// is the zero value / omitted -- never a fabricated answer.
+type AskAnswer struct {
+	Type          string             `json:"type"`
+	Status        string             `json:"status"`
+	Noul          *float64           `json:"noul,omitempty"`
+	Choice        string             `json:"choice,omitempty"`
+	Score         *float64           `json:"score,omitempty"`
+	Confidence    *float64           `json:"confidence,omitempty"`
+	Probabilities map[string]float64 `json:"probabilities,omitempty"`
+}
+
+// AskOutput is the jev_ask tool's output schema.
+type AskOutput struct {
+	Answers        map[string]AskAnswer `json:"answers"`
+	Model          string               `json:"model"`
+	Usage          *Usage               `json:"usage"`
+	LatencyMs      int64                `json:"latency_ms"`
+	BudgetExceeded bool                 `json:"budget_exceeded,omitempty"`
+}
+
+// AskHandler implements the jev_ask tool.
+type AskHandler struct {
+	client           *openrouter.Client
+	model            string
+	timeout          time.Duration
+	budget           *budget.Tracker
+	maxUSDPerCall    float64
+	maxUSDPerSession float64
+	auditLog         *audit.Logger
+}
+
+// NewAskHandler builds an AskHandler from application dependencies.
+func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget.Tracker, auditLog *audit.Logger) *AskHandler {
+	return &AskHandler{
+		client:           client,
+		model:            cfg.ModelForTool(ToolNameAsk),
+		timeout:          time.Duration(cfg.RequestTimeoutMs) * time.Millisecond,
+		budget:           tracker,
+		maxUSDPerCall:    cfg.Budget.MaxUSDPerCall,
+		maxUSDPerSession: cfg.Budget.MaxUSDPerSession,
+		auditLog:         auditLog,
+	}
+}
+
+func init() {
+	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
+		h := NewAskHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+		mcp.AddTool(server, &mcp.Tool{
+			Name: ToolNameAsk,
+			Description: "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
+				"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
+				"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
+				"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
+				"one key is status=\"invalid_response\", every other key's valid answer is unaffected.",
+		}, h.Handle)
+	})
+}
+
+// Handle implements mcp.ToolHandlerFor[AskInput, AskOutput].
+func (h *AskHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
+	start := time.Now()
+
+	if err := validateInput(in); err != nil {
+		return nil, AskOutput{}, err
+	}
+
+	inputHash := audit.HashValue(in)
+
+	if h.budget.SessionBudgetExceeded() {
+		refuseErr := fmt.Errorf("jev_ask: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		h.auditLog.Log(audit.Entry{
+			Tool: ToolNameAsk, Model: h.model, InputStateSHA256: inputHash,
+			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
+			ItemCount: len(in.Questions),
+		})
+		return nil, AskOutput{}, refuseErr
+	}
+
+	questions := make(map[string]openrouter.Question, len(in.Questions))
+	for id, q := range in.Questions {
+		questions[id] = openrouter.Question{Type: q.Type, Instructions: q.Instructions, Criteria: q.Criteria}
+	}
+
+	resp, callErr := h.client.Ask(ctx, h.model, questions, in.State, h.timeout)
+	latencyMs := time.Since(start).Milliseconds()
+
+	if callErr != nil {
+		h.auditLog.Log(audit.Entry{
+			Tool: ToolNameAsk, Model: h.model, InputStateSHA256: inputHash,
+			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
+			ItemCount: len(in.Questions),
+		})
+		return nil, AskOutput{}, fmt.Errorf("jev_ask: %w", callErr)
+	}
+
+	out := AskOutput{Model: resp.Model, LatencyMs: latencyMs, Answers: make(map[string]AskAnswer, len(in.Questions))}
+	if resp.Usage != nil {
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+	}
+
+	invalidCount := 0
+	for id, q := range in.Questions {
+		raw, present := resp.Answers[id]
+		ans := AskAnswer{Type: q.Type}
+		ok := false
+		if present {
+			switch q.Type {
+			case TypeNoul:
+				var v float64
+				if v, ok = answers.Noul(raw); ok {
+					ans.Noul = &v
+				}
+			case TypeChoice:
+				validOptions := stringKeySet(q.Criteria)
+				var choice string
+				var confidence float64
+				var probs map[string]float64
+				if choice, confidence, probs, ok = answers.Choice(raw, validOptions); ok {
+					ans.Choice = choice
+					ans.Confidence = &confidence
+					ans.Probabilities = probs
+				}
+			case TypeScore:
+				levels := criteriaArrayLen(q.Criteria)
+				var score, confidence float64
+				var probs map[string]float64
+				if score, confidence, probs, ok = answers.Score(raw, levels); ok {
+					ans.Score = &score
+					ans.Confidence = &confidence
+					ans.Probabilities = probs
+				}
+			}
+		}
+		if ok {
+			ans.Status = StatusOK
+		} else {
+			ans.Status = StatusInvalidResponse
+			invalidCount++
+		}
+		out.Answers[id] = ans
+	}
+
+	var costUSD *float64
+	if resp.Usage != nil {
+		cost := resp.Usage.Cost
+		h.budget.Add(cost)
+		costUSD = &cost
+		if h.maxUSDPerCall > 0 && cost > h.maxUSDPerCall {
+			out.BudgetExceeded = true
+		}
+	}
+
+	status := "ok"
+	if invalidCount > 0 {
+		status = StatusInvalidResponse
+	}
+	h.auditLog.Log(audit.Entry{
+		Tool: ToolNameAsk, Model: out.Model, InputStateSHA256: inputHash,
+		Status: status, CostUSD: costUSD, LatencyMs: out.LatencyMs, BudgetExceeded: out.BudgetExceeded,
+		ItemCount: len(in.Questions), InvalidCount: invalidCount,
+	})
+
+	return nil, out, nil
+}
+
+// stringKeySet returns the key set of criteria (already validated to be a
+// map[string]any by validateInput) as a map[string]bool suitable for
+// answers.Choice's validOptions parameter.
+func stringKeySet(criteria any) map[string]bool {
+	obj, _ := criteria.(map[string]any)
+	set := make(map[string]bool, len(obj))
+	for k := range obj {
+		set[k] = true
+	}
+	return set
+}
+
+// criteriaArrayLen returns len(criteria) for criteria already validated
+// to be a []any by validateInput.
+func criteriaArrayLen(criteria any) int {
+	arr, _ := criteria.([]any)
+	return len(arr)
+}
+
+// validateInput rejects obviously-unusable input -- including every
+// question's type/criteria shape (see package doc comment) -- before
+// spending any budget or making a network call.
+func validateInput(in AskInput) error {
+	if in.State == nil {
+		return fmt.Errorf("jev_ask: state must not be omitted")
+	}
+	if len(in.Questions) == 0 {
+		return fmt.Errorf("jev_ask: questions must not be empty")
+	}
+	if len(in.Questions) > maxQuestions {
+		return fmt.Errorf("jev_ask: too many questions (%d, max %d)", len(in.Questions), maxQuestions)
+	}
+	for id, q := range in.Questions {
+		if err := validateQuestion(id, q); err != nil {
+			return fmt.Errorf("jev_ask: %w", err)
+		}
+	}
+	return nil
+}
+
+// validateQuestion validates one question's type and criteria shape.
+func validateQuestion(id string, q AskQuestion) error {
+	if strings.TrimSpace(q.Instructions) == "" {
+		return fmt.Errorf("questions[%q].instructions must not be empty", id)
+	}
+	switch q.Type {
+	case TypeNoul, TypeChoice:
+		obj, ok := q.Criteria.(map[string]any)
+		if !ok {
+			return fmt.Errorf("questions[%q]: criteria must be a JSON object for type %q, got %T", id, q.Type, q.Criteria)
+		}
+		if len(obj) == 0 {
+			return fmt.Errorf("questions[%q]: criteria must not be empty", id)
+		}
+		for k, v := range obj {
+			if _, ok := v.(string); !ok {
+				return fmt.Errorf("questions[%q]: criteria[%q] must be a string description, got %T", id, k, v)
+			}
+		}
+	case TypeScore:
+		arr, ok := q.Criteria.([]any)
+		if !ok {
+			return fmt.Errorf("questions[%q]: criteria must be a JSON array for type \"score\", got %T", id, q.Criteria)
+		}
+		if len(arr) == 0 {
+			return fmt.Errorf("questions[%q]: criteria must not be empty", id)
+		}
+		for i, v := range arr {
+			if _, ok := v.(string); !ok {
+				return fmt.Errorf("questions[%q]: criteria[%d] must be a level-description string, got %T", id, i, v)
+			}
+		}
+	default:
+		return fmt.Errorf("questions[%q]: type must be \"noul\", \"choice\", or \"score\", got %q", id, q.Type)
+	}
+	return nil
+}

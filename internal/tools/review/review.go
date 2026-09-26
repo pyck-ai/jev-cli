@@ -1,0 +1,204 @@
+// Package review implements the jev_review MCP tool: a weighted,
+// multi-rubric code-review assessment (correctness, spec match, test
+// gap, blast radius, and a safe-to-apply signal) of a diff against a
+// request, using TypeSafe's Jev judgment model's "score" and "noul"
+// question types, via OpenRouter's SystemOne API.
+//
+// This package is a self-registering plugin (see internal/registry's
+// package doc comment for the overall mechanism). The actual scoring
+// logic -- question construction, answer parsing, composite computation,
+// and the auto/review/escalate decision rule -- lives in
+// internal/tools/reviewcore, shared with internal/tools/gate (jev_gate is
+// jev_review plus claim verification, folded into the same SystemOne
+// call; see reviewcore's package doc comment for why the shared logic
+// lives in its own package rather than gate importing review directly).
+// This package is a thin wrapper: input validation/truncation, the
+// client.Ask call, and the usual budget/audit plumbing.
+//
+// # What is and isn't independently verified
+//
+// See internal/tools/reviewcore's package doc comment: the "score" and
+// "noul" wire shapes are verified-live facts from 2026-09-26, not
+// independently re-verified here (no OPENROUTER_API_KEY was available in
+// this implementation environment).
+package review
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/pyck-ai/jev-mcp/internal/answers"
+	"github.com/pyck-ai/jev-mcp/internal/audit"
+	"github.com/pyck-ai/jev-mcp/internal/budget"
+	"github.com/pyck-ai/jev-mcp/internal/config"
+	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-mcp/internal/registry"
+	"github.com/pyck-ai/jev-mcp/internal/tools/reviewcore"
+)
+
+// ToolNameReview is the MCP tool name registered for ReviewHandler.
+const ToolNameReview = "jev_review"
+
+// Usage mirrors the token accounting reported by OpenRouter for a call.
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// ReviewInput is the jev_review tool's input schema.
+type ReviewInput struct {
+	Request        string             `json:"request" jsonschema:"The original request/task the diff is meant to satisfy. Capped at 50,000 characters."`
+	Diff           string             `json:"diff" jsonschema:"The diff to review. Capped at 50,000 characters."`
+	Tests          string             `json:"tests,omitempty" jsonschema:"Optional test output/description. Capped at 50,000 characters."`
+	AutoAccept     float64            `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] every rubric must meet for action to be 'auto'. Default 0.8."`
+	CompositeFloor float64            `json:"composite_floor,omitempty" jsonschema:"Minimum weighted composite in [0,1] for action to be 'auto'. Default 0.7."`
+	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Optional override of the default rubric weights (correctness 0.4, spec_match 0.3, test_gap 0.15, blast_radius 0.15); normalized to sum to 1."`
+}
+
+// ReviewOutput is the jev_review tool's output schema. It embeds
+// reviewcore.Assessment directly (flattening correctness/spec_match/
+// test_gap/blast_radius/safe_to_apply/composite/truncated/action/
+// reason_codes to the top level of the JSON object) alongside this tool's
+// own call metadata.
+type ReviewOutput struct {
+	reviewcore.Assessment
+	Model          string `json:"model"`
+	Usage          *Usage `json:"usage"`
+	LatencyMs      int64  `json:"latency_ms"`
+	BudgetExceeded bool   `json:"budget_exceeded,omitempty"`
+}
+
+// ReviewHandler implements the jev_review tool.
+type ReviewHandler struct {
+	client           *openrouter.Client
+	model            string
+	timeout          time.Duration
+	budget           *budget.Tracker
+	maxUSDPerCall    float64
+	maxUSDPerSession float64
+	auditLog         *audit.Logger
+}
+
+// NewReviewHandler builds a ReviewHandler from application dependencies.
+func NewReviewHandler(client *openrouter.Client, cfg config.Config, tracker *budget.Tracker, auditLog *audit.Logger) *ReviewHandler {
+	return &ReviewHandler{
+		client:           client,
+		model:            cfg.ModelForTool(ToolNameReview),
+		timeout:          time.Duration(cfg.RequestTimeoutMs) * time.Millisecond,
+		budget:           tracker,
+		maxUSDPerCall:    cfg.Budget.MaxUSDPerCall,
+		maxUSDPerSession: cfg.Budget.MaxUSDPerSession,
+		auditLog:         auditLog,
+	}
+}
+
+func init() {
+	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
+		h := NewReviewHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+		mcp.AddTool(server, &mcp.Tool{
+			Name: ToolNameReview,
+			Description: "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
+				"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
+				"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
+				"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
+				"fabricated pass.",
+		}, h.Handle)
+	})
+}
+
+// Handle implements mcp.ToolHandlerFor[ReviewInput, ReviewOutput].
+func (h *ReviewHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in ReviewInput) (*mcp.CallToolResult, ReviewOutput, error) {
+	start := time.Now()
+
+	if err := validateInput(in); err != nil {
+		return nil, ReviewOutput{}, err
+	}
+
+	prepared, truncated := reviewcore.Prepare(in.Request, in.Diff, in.Tests)
+	state := reviewcore.State(prepared)
+	inputHash := audit.HashValue(in)
+
+	if h.budget.SessionBudgetExceeded() {
+		refuseErr := fmt.Errorf("jev_review: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		h.auditLog.Log(audit.Entry{
+			Tool: ToolNameReview, Model: h.model, InputStateSHA256: inputHash,
+			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
+			ItemCount: 5,
+		})
+		return nil, ReviewOutput{}, refuseErr
+	}
+
+	resp, callErr := h.client.Ask(ctx, h.model, reviewcore.Questions(), state, h.timeout)
+	latencyMs := time.Since(start).Milliseconds()
+
+	if callErr != nil {
+		h.auditLog.Log(audit.Entry{
+			Tool: ToolNameReview, Model: h.model, InputStateSHA256: inputHash,
+			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
+			ItemCount: 5,
+		})
+		return nil, ReviewOutput{}, fmt.Errorf("jev_review: %w", callErr)
+	}
+
+	assessment := reviewcore.ParseAssessment(resp.Answers, truncated, in.AutoAccept, in.CompositeFloor, in.Weights)
+	out := ReviewOutput{Assessment: assessment, Model: resp.Model, LatencyMs: latencyMs}
+	if resp.Usage != nil {
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+	}
+
+	var costUSD *float64
+	if resp.Usage != nil {
+		cost := resp.Usage.Cost
+		h.budget.Add(cost)
+		costUSD = &cost
+		if h.maxUSDPerCall > 0 && cost > h.maxUSDPerCall {
+			out.BudgetExceeded = true
+		}
+	}
+
+	invalidCount := assessment.InvalidCount()
+	status := "ok"
+	if invalidCount > 0 {
+		status = "invalid_response"
+	}
+	h.auditLog.Log(audit.Entry{
+		Tool: ToolNameReview, Model: out.Model, InputStateSHA256: inputHash,
+		Status: status, CostUSD: costUSD, LatencyMs: out.LatencyMs, BudgetExceeded: out.BudgetExceeded,
+		ItemCount: assessment.ItemCount(), InvalidCount: invalidCount,
+	})
+
+	return nil, out, nil
+}
+
+// validateInput rejects obviously-unusable input before spending any
+// budget or making a network call. Note: Request/Diff/Tests are NOT
+// length-checked here (over-cap is handled by silent truncation in
+// reviewcore.Prepare, not rejection) -- only emptiness and threshold
+// shapes are validated up front.
+func validateInput(in ReviewInput) error {
+	if strings.TrimSpace(in.Request) == "" {
+		return fmt.Errorf("jev_review: request must not be empty")
+	}
+	if strings.TrimSpace(in.Diff) == "" {
+		return fmt.Errorf("jev_review: diff must not be empty")
+	}
+	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
+		return fmt.Errorf("jev_review: %w", err)
+	}
+	if in.CompositeFloor != 0 && (in.CompositeFloor < 0 || in.CompositeFloor > 1) {
+		return fmt.Errorf("jev_review: composite_floor must be in [0,1] if set, got %v", in.CompositeFloor)
+	}
+	for name, w := range map[string]float64{
+		"weights.correctness": in.Weights.Correctness, "weights.spec_match": in.Weights.SpecMatch,
+		"weights.test_gap": in.Weights.TestGap, "weights.blast_radius": in.Weights.BlastRadius,
+	} {
+		if w < 0 {
+			return fmt.Errorf("jev_review: %s must not be negative, got %v", name, w)
+		}
+	}
+	return nil
+}
