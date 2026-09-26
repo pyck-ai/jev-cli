@@ -76,16 +76,15 @@ and the process exits non-zero.
 jev-mcp is a stdio MCP server: any MCP-compatible client can spawn it
 directly. Two invocation styles work everywhere below:
 
-- **`go run github.com/pyck-ai/jev-mcp@latest`** — no local checkout or build
+- **`go run github.com/pyck-ai/jev-mcp@main`** — no local checkout or build
   step; Go resolves, builds, and runs the module in one command. No tagged
-  release is required for this to work: with no tags, `@latest` resolves to
-  a pseudo-version built from the newest commit on the default branch (Go's
-  own module resolution falls back this way automatically); once tags exist,
-  `@latest` tracks the newest one instead. Pin `@v0.1.0` or a commit `@<sha>`
-  for reproducible behavior across machines regardless. Requires the Go
-  toolchain and network access to `proxy.golang.org` (or a configured
-  `GOPROXY` mirror) on whatever machine runs it, and re-resolves/compiles on
-  every cold start.
+  release is required: `@main` names the branch directly, which Go resolves
+  to its current commit via a pseudo-version (this project deliberately
+  ships no tags/releases for now). Pin a specific commit instead
+  (`@<sha>`) if you want a fixed version rather than always tracking the
+  branch tip. Requires the Go toolchain and network access to
+  `proxy.golang.org` (or a configured `GOPROXY` mirror) on whatever machine
+  runs it, and re-resolves/compiles on every cold start.
 - **A locally built binary** (`go build -o jev-mcp .` — see [Build](#build))
   — no network or toolchain needed at runtime, lower-latency cold start.
   Prefer this for a checked-out working copy you already have.
@@ -103,7 +102,7 @@ Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-s
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@latest"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@main"],
       "enabled": true
     }
   }
@@ -123,7 +122,7 @@ use a *different* OpenRouter key than the rest of opencode:
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@latest"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@main"],
       "enabled": true,
       "environment": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
@@ -140,7 +139,7 @@ is checked into version control.
 Register a user-scoped stdio server with `claude mcp add`:
 
 ```sh
-claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-mcp@latest
+claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-mcp@main
 ```
 
 Or add it directly to a project's `.mcp.json` for team-wide, version-controlled
@@ -152,7 +151,7 @@ config:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-mcp@latest"]
+      "args": ["run", "github.com/pyck-ai/jev-mcp@main"]
     }
   }
 }
@@ -169,7 +168,7 @@ block to the server entry above:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-mcp@latest"],
+      "args": ["run", "github.com/pyck-ai/jev-mcp@main"],
       "env": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
   }

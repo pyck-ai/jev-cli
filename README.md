@@ -59,7 +59,7 @@ tested against a fake OpenRouter server instead (see
 It's runnable with no local checkout or build step at all:
 
 ```sh
-go run github.com/pyck-ai/jev-mcp@latest
+go run github.com/pyck-ai/jev-mcp@main
 ```
 
 To use it from an MCP client, see
