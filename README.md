@@ -56,17 +56,16 @@ real OpenRouter account is needed to run the tests — every tool's handler is
 tested against a fake OpenRouter server instead (see
 [Testing](docs/development.md#testing)).
 
-To use it from opencode, add the built binary to `opencode.json`'s `mcp`
-block — see [Registering with opencode](docs/development.md#registering-with-opencode).
-Once pushed to `github.com/pyck-ai/jev-mcp`, it's also runnable with no local
-checkout or build step at all:
+It's runnable with no local checkout or build step at all:
 
 ```sh
 go run github.com/pyck-ai/jev-mcp@latest
 ```
 
-See [Running via `go run`](docs/development.md#running-via-go-run-instead-of-a-built-binary)
-for the tradeoffs against a locally built binary.
+To use it from an MCP client, see
+[Using jev-mcp from an MCP client](docs/development.md#using-jev-mcp-from-an-mcp-client)
+for opencode and Claude Code examples (or a locally built binary instead of
+`go run`, if you prefer).
 
 ## Documentation
 

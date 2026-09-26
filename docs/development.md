@@ -71,7 +71,25 @@ resolved model, since different tools may resolve different models via
 you'll instead see a one-line `no OpenRouter API key available: ...` error
 and the process exits non-zero.
 
-## Registering with opencode
+## Using jev-mcp from an MCP client
+
+jev-mcp is a stdio MCP server: any MCP-compatible client can spawn it
+directly. Two invocation styles work everywhere below:
+
+- **`go run github.com/pyck-ai/jev-mcp@latest`** — no local checkout or build
+  step; Go resolves, builds, and runs the module in one command. `@latest`
+  tracks the newest tagged release; pin `@v0.1.0` or a commit `@<sha>` for
+  reproducible behavior across machines. Requires the Go toolchain and
+  network access to `proxy.golang.org` (or a configured `GOPROXY` mirror) on
+  whatever machine runs it, and re-resolves/compiles on every cold start.
+- **A locally built binary** (`go build -o jev-mcp .` — see [Build](#build))
+  — no network or toolchain needed at runtime, lower-latency cold start.
+  Prefer this for a checked-out working copy you already have.
+
+Every example below uses `go run`; swap in a path to a locally built binary
+if you prefer.
+
+### opencode
 
 Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-servers/)):
 
@@ -81,7 +99,7 @@ Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-s
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["/home/you/src/local/jev-mcp/jev-mcp"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@latest"],
       "enabled": true
     }
   }
@@ -101,7 +119,7 @@ use a *different* OpenRouter key than the rest of opencode:
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["/home/you/src/local/jev-mcp/jev-mcp"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@latest"],
       "enabled": true,
       "environment": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
@@ -109,44 +127,47 @@ use a *different* OpenRouter key than the rest of opencode:
 }
 ```
 
-Adjust the `command` path to wherever you built the binary. Prefer setting
-`OPENROUTER_API_KEY` in your shell/secret manager over hardcoding it in
-`opencode.json` if you use the explicit form and that file is checked into
-version control.
+Prefer setting `OPENROUTER_API_KEY` in your shell/secret manager over
+hardcoding it in `opencode.json` if you use the explicit form and that file
+is checked into version control.
 
-### Running via `go run` instead of a built binary
+### Claude Code
 
-Once this repo is pushed to `github.com/pyck-ai/jev-mcp`, no separate build
-step is required — `go run` fetches, builds, and runs the module in one
-command:
+Register a user-scoped stdio server with `claude mcp add`:
 
 ```sh
-go run github.com/pyck-ai/jev-mcp@latest
+claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-mcp@latest
 ```
 
-`@latest` resolves to the newest tagged release; pin a specific version
-(`@v0.1.0`) or commit (`@<sha>`) instead if you want reproducible behavior
-across machines. In `opencode.json`, this replaces the `command` array with
-the `go run` invocation instead of a path to a locally built binary:
+Or add it directly to a project's `.mcp.json` for team-wide, version-controlled
+config:
 
 ```json
 {
-  "mcp": {
+  "mcpServers": {
     "jev": {
-      "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@latest"],
-      "enabled": true
+      "type": "stdio",
+      "command": "go",
+      "args": ["run", "github.com/pyck-ai/jev-mcp@latest"]
     }
   }
 }
 ```
 
-The tradeoff: `go run` re-resolves and compiles on every cold start (a local
-build only pays that cost once), and it requires the Go toolchain and
-network access to `proxy.golang.org` (or `GOPROXY`/`GOFLAGS=-mod=mod`
-configured for a private/offline mirror) on whatever machine runs it. Prefer
-a locally built binary — see [Build](#build) — for a lower-latency, offline
-startup; prefer `go run` when you want to track a version without a manual
-rebuild step, or run it on a machine that never has this repo checked out
-locally at all.
-version control.
+Claude Code has no OpenRouter-credential store of its own to fall back to
+the way opencode does — set `OPENROUTER_API_KEY` in your shell/secret
+manager (see [API key](configuration.md#api-key-required)), or add an `"env"`
+block to the server entry above:
+
+```json
+{
+  "mcpServers": {
+    "jev": {
+      "type": "stdio",
+      "command": "go",
+      "args": ["run", "github.com/pyck-ai/jev-mcp@latest"],
+      "env": { "OPENROUTER_API_KEY": "sk-or-..." }
+    }
+  }
+}
+```
