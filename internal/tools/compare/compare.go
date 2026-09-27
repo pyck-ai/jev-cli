@@ -44,13 +44,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/answers"
-	"github.com/pyck-ai/jev-mcp/internal/audit"
-	"github.com/pyck-ai/jev-mcp/internal/budget"
-	"github.com/pyck-ai/jev-mcp/internal/capstring"
-	"github.com/pyck-ai/jev-mcp/internal/config"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
-	"github.com/pyck-ai/jev-mcp/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/answers"
+	"github.com/pyck-ai/jev-cli/internal/audit"
+	"github.com/pyck-ai/jev-cli/internal/budget"
+	"github.com/pyck-ai/jev-cli/internal/capstring"
+	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/registry"
 )
 
 // ToolNameCompare is the MCP tool name registered for CompareHandler.

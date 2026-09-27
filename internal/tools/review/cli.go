@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/cliformat"
-	"github.com/pyck-ai/jev-mcp/internal/cliinput"
-	"github.com/pyck-ai/jev-mcp/internal/registry"
-	"github.com/pyck-ai/jev-mcp/internal/tools/reviewcore"
+	"github.com/pyck-ai/jev-cli/internal/cliformat"
+	"github.com/pyck-ai/jev-cli/internal/cliinput"
+	"github.com/pyck-ai/jev-cli/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/tools/reviewcore"
 )
 
 const cliShortDescription = "Assess a diff against a request on four weighted rubrics"

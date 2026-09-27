@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pyck-ai/jev-mcp/internal/xdg"
+	"github.com/pyck-ai/jev-cli/internal/xdg"
 )
 
 // Usage mirrors the token accounting reported by OpenRouter for a call.
@@ -82,19 +82,28 @@ type Logger struct {
 	mu   sync.Mutex
 }
 
-// DefaultPath returns "$XDG_DATA_HOME/jev-mcp/audit.jsonl", falling back to
-// "$HOME/.local/share/jev-mcp/audit.jsonl" when XDG_DATA_HOME is unset --
-// which is the literal path named in the project brief
-// (~/.local/share/jev-mcp/audit.jsonl) for the common case where
-// XDG_DATA_HOME is not overridden. See internal/xdg for the shared
-// $XDG_DATA_HOME resolution logic (also used by internal/credentials to
-// locate opencode's auth store).
+// DefaultPath returns "<data home>/jev-cli/audit.jsonl", where <data home>
+// is $XDG_DATA_HOME or, when unset, $HOME/.local/share (see internal/xdg,
+// also used by internal/credentials to locate opencode's auth store).
+//
+// Rename fallback: if that file does not exist yet but the pre-rename
+// "<data home>/jev-mcp/audit.jsonl" does, the legacy path is returned
+// instead, so an existing audit history keeps growing in one file rather
+// than being split across two.
 func DefaultPath() (string, error) {
 	dataHome, err := xdg.DataHome()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dataHome, "jev-mcp", "audit.jsonl"), nil
+	current := filepath.Join(dataHome, "jev-cli", "audit.jsonl")
+	if _, err := os.Stat(current); err == nil {
+		return current, nil
+	}
+	legacy := filepath.Join(dataHome, "jev-mcp", "audit.jsonl")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy, nil
+	}
+	return current, nil
 }
 
 // NewLogger creates a Logger writing to path. It does not touch the
@@ -117,7 +126,7 @@ func (l *Logger) Log(entry Entry) {
 
 	line, err := json.Marshal(entry)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: audit: failed to marshal entry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: audit: failed to marshal entry: %v\n", err)
 		return
 	}
 	line = append(line, '\n')
@@ -126,19 +135,19 @@ func (l *Logger) Log(entry Entry) {
 	defer l.mu.Unlock()
 
 	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: audit: failed to create log directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: audit: failed to create log directory: %v\n", err)
 		return
 	}
 
 	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: audit: failed to open log file %s: %v\n", l.path, err)
+		fmt.Fprintf(os.Stderr, "jev: audit: failed to open log file %s: %v\n", l.path, err)
 		return
 	}
 	defer f.Close()
 
 	if _, err := f.Write(line); err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: audit: failed to write log entry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: audit: failed to write log entry: %v\n", err)
 	}
 }
 

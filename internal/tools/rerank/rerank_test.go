@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pyck-ai/jev-mcp/internal/audit"
-	"github.com/pyck-ai/jev-mcp/internal/budget"
-	"github.com/pyck-ai/jev-mcp/internal/config"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/audit"
+	"github.com/pyck-ai/jev-cli/internal/budget"
+	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
 )
 
 func newTestHandler(t *testing.T, serverURL string, cfg config.Config) *RerankHandler {

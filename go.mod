@@ -1,4 +1,4 @@
-module github.com/pyck-ai/jev-mcp
+module github.com/pyck-ai/jev-cli
 
 go 1.25.0
 

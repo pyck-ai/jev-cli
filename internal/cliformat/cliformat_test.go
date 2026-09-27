@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/cliformat"
+	"github.com/pyck-ai/jev-cli/internal/cliformat"
 )
 
 // outShape exercises every renderable shape: scalars, a map, a slice of

@@ -65,26 +65,70 @@ func TestLogger_Log_NeverPanicsOnUnwritableDirectory(t *testing.T) {
 }
 
 func TestDefaultPath_HonorsXDGDataHome(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", "/tmp/xdgdata")
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
 	p, err := DefaultPath()
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
 	}
-	want := filepath.Join("/tmp/xdgdata", "jev-mcp", "audit.jsonl")
+	want := filepath.Join(dataHome, "jev-cli", "audit.jsonl")
 	if p != want {
 		t.Errorf("DefaultPath() = %q, want %q", p, want)
 	}
 }
 
 func TestDefaultPath_FallsBackToHomeLocalShare(t *testing.T) {
+	home := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", "")
-	t.Setenv("HOME", "/tmp/fakehome")
+	t.Setenv("HOME", home)
 	p, err := DefaultPath()
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
 	}
-	want := filepath.Join("/tmp/fakehome", ".local", "share", "jev-mcp", "audit.jsonl")
+	want := filepath.Join(home, ".local", "share", "jev-cli", "audit.jsonl")
 	if p != want {
 		t.Errorf("DefaultPath() = %q, want %q", p, want)
+	}
+}
+
+// writeFile creates path (and its parent dirs) with placeholder content.
+func writeFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDefaultPath_UsesLegacyLogWhenOnlyItExists(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	legacy := filepath.Join(dataHome, "jev-mcp", "audit.jsonl")
+	writeFile(t, legacy)
+
+	p, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if p != legacy {
+		t.Errorf("DefaultPath() = %q, want legacy %q", p, legacy)
+	}
+}
+
+func TestDefaultPath_PrefersNewLogWhenBothExist(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	current := filepath.Join(dataHome, "jev-cli", "audit.jsonl")
+	writeFile(t, current)
+	writeFile(t, filepath.Join(dataHome, "jev-mcp", "audit.jsonl"))
+
+	p, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if p != current {
+		t.Errorf("DefaultPath() = %q, want %q", p, current)
 	}
 }

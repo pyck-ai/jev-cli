@@ -56,7 +56,7 @@
 //
 // This client was originally score-only (a single Client.Score method).
 // It was generalized to send an arbitrary map of named questions of mixed
-// types in one call (Client.Ask) once jev-mcp grew tools built on the
+// types in one call (Client.Ask) once jev-cli grew tools built on the
 // "noul" and "choice" question types, and on batching more than one
 // question (e.g. one per claim/candidate/item) into a single HTTP round
 // trip -- SystemOne's request shape already supported this ("questions"
@@ -69,7 +69,7 @@
 // The "noul" and "choice" response shapes (NoulAnswer, ChoiceAnswer
 // below) were supplied as already-verified-live wire facts (confirmed
 // against OpenRouter on 2026-09-26, per the task brief that introduced
-// jev-mcp's second batch of tools) rather than independently re-verified
+// jev-cli's second batch of tools) rather than independently re-verified
 // here, for the same reason as everything else in this section: no
 // OPENROUTER_API_KEY was available in this implementation environment.
 // Notably, per that verification, a "noul" answer has NO "confidence" and

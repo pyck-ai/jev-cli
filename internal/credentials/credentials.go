@@ -1,12 +1,12 @@
-// Package credentials resolves the OpenRouter API key jev-mcp uses to
+// Package credentials resolves the OpenRouter API key jev-cli uses to
 // authenticate to OpenRouter.
 //
-// jev-mcp keeps stdio-only, single-user, locally-invoked operation: this
+// jev-cli keeps stdio-only, single-user, locally-invoked operation: this
 // package only ever reads local files/env vars already on disk/in the
 // process environment. It does not start any service, does not accept
 // network connections, and does not perform any bearer-token HTTP auth of
 // its own -- it simply decides which string to put in the Authorization
-// header jev-mcp itself sends to OpenRouter (see internal/openrouter).
+// header jev-cli itself sends to OpenRouter (see internal/openrouter).
 package credentials
 
 import (
@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pyck-ai/jev-mcp/internal/xdg"
+	"github.com/pyck-ai/jev-cli/internal/xdg"
 )
 
 // EnvVar is the environment variable checked first.
@@ -34,13 +34,13 @@ type Result struct {
 //  1. The OPENROUTER_API_KEY environment variable, if set and non-empty --
 //     used as-is.
 //  2. Otherwise, opencode's own credential store: as an existing user of
-//     opencode may already have logged into OpenRouter there, jev-mcp
+//     opencode may already have logged into OpenRouter there, jev-cli
 //     falls back to reusing that credential rather than requiring a
 //     separate login. The store is a static JSON file at
 //     "$XDG_DATA_HOME/opencode/auth.json" (falling back to
 //     "~/.local/share/opencode/auth.json" when XDG_DATA_HOME is unset --
 //     see internal/xdg for the shared resolution logic, also used for
-//     jev-mcp's own audit log path). It is only ever read, never written,
+//     jev-cli's own audit log path). It is only ever read, never written,
 //     and opencode need not be running. If the file exists, parses as
 //     JSON, and has an "openrouter" entry with "type":"api" and a
 //     non-empty "key", that key is used. An "openrouter" entry with any

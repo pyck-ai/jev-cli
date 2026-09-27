@@ -1,4 +1,4 @@
-# Contributing to jev-mcp
+# Contributing to jev-cli
 
 This is the contributor entry point: how to set up, how a change moves from
 idea to merge, and where to find things. Each section below points at the
@@ -7,8 +7,8 @@ full document in [`docs/`](docs/README.md).
 ## Set up
 
 ```sh
-git clone <repo-url> && cd jev-mcp
-go build -o jev-mcp .
+git clone <repo-url> && cd jev-cli
+go build -o jev .
 ```
 
 Go 1.25+ and an OpenRouter API key are all you need — see

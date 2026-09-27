@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/cliinput"
+	"github.com/pyck-ai/jev-cli/internal/cliinput"
 )
 
 // testInput mirrors the shape of a real tool Input (score's, minus the

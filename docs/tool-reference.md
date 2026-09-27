@@ -1,6 +1,6 @@
 # Tool reference
 
-Input/output reference for all 14 jev-mcp tools, one section per tool: an
+Input/output reference for all 14 jev-cli tools, one section per tool: an
 input table, an output table, and an example call/response. See
 [Architecture](architecture.md#conventions-shared-by-every-tool) for the
 fail-closed status conventions, `auto_accept` threshold semantics, and

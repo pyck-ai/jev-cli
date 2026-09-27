@@ -1,6 +1,6 @@
 # Architecture
 
-How jev-mcp's tools are structured as self-registering plugins, the shared
+How jev-cli's tools are structured as self-registering plugins, the shared
 plumbing every tool reuses, the conventions every tool follows, and the
 repository's package layout. See [Tool reference](tool-reference.md) for
 the per-tool input/output spec this architecture supports, and
@@ -23,13 +23,13 @@ Every tool is a self-registering plugin, modeled directly on Go's
   (every one of the 14 tools populates both today -- see
   [CLI mode](#cli-mode) below).
 - `main.go` activates the whole tool set with one blank import per tool
-  package (`_ "github.com/pyck-ai/jev-mcp/internal/tools/<name>"`), builds
+  package (`_ "github.com/pyck-ai/jev-cli/internal/tools/<name>"`), builds
   one `*registry.Deps`, then loops `for _, t := range registry.All() {
   t.RegisterMCP(server, deps) }` before starting the server.
 
 ### CLI mode
 
-`jev-mcp`'s binary mode-switches on its first argument: with no arguments,
+`jev-cli`'s binary mode-switches on its first argument: with no arguments,
 or `mcp` as the first argument, it runs the MCP server described above,
 unchanged. Any other first argument instead builds a `cobra` root command
 (`Use: "jev"`) and loops over `registry.All()` calling `t.RegisterCLI(root,

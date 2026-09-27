@@ -1,5 +1,5 @@
 // Package xdg implements the one piece of the XDG Base Directory
-// Specification jev-mcp needs: resolving the user's data directory. The Go
+// Specification jev-cli needs: resolving the user's data directory. The Go
 // standard library has os.UserConfigDir() but no equivalent for
 // $XDG_DATA_HOME, so that fallback is implemented once here and shared by
 // every package that needs a data-directory path (internal/audit's audit

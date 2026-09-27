@@ -1,4 +1,4 @@
-// Package config loads jev-mcp's JSON configuration file and applies the
+// Package config loads jev-cli's JSON configuration file and applies the
 // small set of environment-variable overrides documented in the project
 // README.
 //
@@ -18,7 +18,7 @@ import (
 )
 
 // DefaultModel is the OpenRouter model slug used when neither the config
-// file nor JEV_MCP_MODEL specify one.
+// file nor JEV_CLI_MODEL specify one.
 //
 // Plain "typesafe/jev-latest" (no tilde) is NOT valid: a live call returns
 // HTTP 400 "Model typesafe/jev-latest does not exist". The correct
@@ -52,8 +52,8 @@ type Retry struct {
 	MaxBackoffMs  int `json:"max_backoff_ms"`
 }
 
-// Config is the parsed shape of ~/.config/jev-mcp/config.json (or the path
-// named by JEV_MCP_CONFIG_PATH).
+// Config is the parsed shape of ~/.config/jev-cli/config.json (or the path
+// named by JEV_CLI_CONFIG_PATH).
 type Config struct {
 	DefaultModel       string            `json:"default_model"`
 	ToolModelOverrides map[string]string `json:"tool_model_overrides"`
@@ -83,24 +83,68 @@ func Default() Config {
 	}
 }
 
-// Path resolves the config file path: JEV_MCP_CONFIG_PATH if set, otherwise
-// "<user config dir>/jev-mcp/config.json". On Linux, os.UserConfigDir()
-// resolves to $XDG_CONFIG_HOME, or $HOME/.config when that is unset, which
-// matches the project brief's documented default of
-// ~/.config/jev-mcp/config.json.
+// Environment variables. Each has a legacy JEV_MCP_* spelling from before
+// the project was renamed from jev-mcp to jev-cli; the new name wins when
+// both are set, and the legacy name is still honored when only it is.
+const (
+	EnvConfigPath       = "JEV_CLI_CONFIG_PATH"
+	EnvModel            = "JEV_CLI_MODEL"
+	legacyEnvConfigPath = "JEV_MCP_CONFIG_PATH"
+	legacyEnvModel      = "JEV_MCP_MODEL"
+)
+
+// appDirName is this project's directory name under the user config dir
+// (and, in internal/audit, under the user data dir). legacyAppDirName is
+// the pre-rename name, still read as a fallback.
+const (
+	appDirName       = "jev-cli"
+	legacyAppDirName = "jev-mcp"
+)
+
+// getenvFirst returns the first non-empty value among the named
+// environment variables.
+func getenvFirst(names ...string) string {
+	for _, n := range names {
+		if v := os.Getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Path resolves the config file path, in order:
+//
+//  1. JEV_CLI_CONFIG_PATH, or the legacy JEV_MCP_CONFIG_PATH, if set.
+//  2. "<user config dir>/jev-cli/config.json", if that file exists.
+//  3. "<user config dir>/jev-mcp/config.json" (the pre-rename location),
+//     if that file exists and the new one doesn't, so an existing config
+//     keeps working without being moved.
+//  4. Otherwise "<user config dir>/jev-cli/config.json" (it need not
+//     exist; Load treats a missing file as "use defaults").
+//
+// On Linux, os.UserConfigDir() is $XDG_CONFIG_HOME, or $HOME/.config when
+// that is unset.
 func Path() (string, error) {
-	if p := os.Getenv("JEV_MCP_CONFIG_PATH"); p != "" {
+	if p := getenvFirst(EnvConfigPath, legacyEnvConfigPath); p != "" {
 		return p, nil
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving default config directory: %w", err)
 	}
-	return filepath.Join(dir, "jev-mcp", "config.json"), nil
+	current := filepath.Join(dir, appDirName, "config.json")
+	if _, err := os.Stat(current); err == nil {
+		return current, nil
+	}
+	legacy := filepath.Join(dir, legacyAppDirName, "config.json")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy, nil
+	}
+	return current, nil
 }
 
 // Load reads and parses the config file, merges it onto Default(), and
-// applies the JEV_MCP_MODEL environment override to DefaultModel.
+// applies the JEV_CLI_MODEL environment override to DefaultModel.
 //
 // A missing config file is not an error: Default() (plus any env override)
 // is returned as-is. A config file that exists but fails to parse IS
@@ -131,19 +175,17 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// applyEnvOverrides applies JEV_MCP_MODEL, which overrides the
-// default_model field specifically.
+// applyEnvOverrides applies JEV_CLI_MODEL (or the legacy JEV_MCP_MODEL),
+// which overrides the default_model field specifically.
 //
-// Precedence choice (not fully spelled out in the brief, documented here
-// explicitly): JEV_MCP_MODEL overrides cfg.DefaultModel, but an explicit
+// Precedence: the env var overrides cfg.DefaultModel, but an explicit
 // per-tool entry in tool_model_overrides in the config file still wins over
 // the (possibly env-overridden) default for that specific tool, since a
 // tool-specific setting is more specific than a blanket default override.
-// If you want JEV_MCP_MODEL to force every tool regardless of
-// tool_model_overrides, unset/remove the relevant entry from your config
-// file.
+// If you want the env var to force every tool regardless of
+// tool_model_overrides, remove the relevant entry from your config file.
 func applyEnvOverrides(cfg *Config) {
-	if m := os.Getenv("JEV_MCP_MODEL"); m != "" {
+	if m := getenvFirst(EnvModel, legacyEnvModel); m != "" {
 		cfg.DefaultModel = m
 	}
 }

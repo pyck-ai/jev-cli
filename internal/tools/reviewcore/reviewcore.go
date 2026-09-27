@@ -27,9 +27,9 @@ package reviewcore
 import (
 	"encoding/json"
 
-	"github.com/pyck-ai/jev-mcp/internal/answers"
-	"github.com/pyck-ai/jev-mcp/internal/capstring"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/answers"
+	"github.com/pyck-ai/jev-cli/internal/capstring"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
 )
 
 // Hard caps on Request/Diff/Tests, in runes (see internal/capstring),

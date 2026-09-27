@@ -8,7 +8,7 @@
 // registers a registry.Tool whose RegisterMCP wires jev_score onto
 // whatever *mcp.Server main.go passes it at startup. main.go activates it
 // with a single blank import,
-// `_ "github.com/pyck-ai/jev-mcp/internal/tools/score"` -- deleting this
+// `_ "github.com/pyck-ai/jev-cli/internal/tools/score"` -- deleting this
 // directory and that one line is sufficient to remove the tool entirely;
 // no other file needs to change.
 //
@@ -30,11 +30,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/audit"
-	"github.com/pyck-ai/jev-mcp/internal/budget"
-	"github.com/pyck-ai/jev-mcp/internal/config"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
-	"github.com/pyck-ai/jev-mcp/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/audit"
+	"github.com/pyck-ai/jev-cli/internal/budget"
+	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/registry"
 )
 
 // ToolNameScore is the MCP tool name registered for ScoreHandler, and the

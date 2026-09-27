@@ -1,6 +1,6 @@
 # Documentation
 
-This directory holds every detailed document for jev-mcp, one topic per
+This directory holds every detailed document for jev-cli, one topic per
 file. The entrypoints elsewhere in the repository are deliberately thin:
 [`README.md`](../README.md) is the project map and
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the contributor guide; each
@@ -8,7 +8,7 @@ summarizes and links here rather than restating.
 
 ## Documents
 
-**[Configuration](configuration.md)** — how jev-mcp gets its OpenRouter API
+**[Configuration](configuration.md)** — how jev-cli gets its OpenRouter API
 key (env var, then opencode's own credential store), the optional config
 file and its environment-variable overrides, the JSON-lines audit log every
 call writes, and how the per-call/session budget caps are enforced.

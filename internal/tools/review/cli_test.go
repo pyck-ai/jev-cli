@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pyck-ai/jev-mcp/internal/audit"
-	"github.com/pyck-ai/jev-mcp/internal/budget"
-	"github.com/pyck-ai/jev-mcp/internal/config"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
-	"github.com/pyck-ai/jev-mcp/internal/registry"
-	"github.com/pyck-ai/jev-mcp/internal/tools/reviewcore"
+	"github.com/pyck-ai/jev-cli/internal/audit"
+	"github.com/pyck-ai/jev-cli/internal/budget"
+	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/tools/reviewcore"
 )
 
 // cliTestProvider builds a registry.DepsProvider pointed at a fake

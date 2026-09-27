@@ -1,6 +1,6 @@
-# jev-mcp
+# jev-cli
 
-jev-mcp exposes TypeSafe's **Jev** judgment model, via
+jev-cli exposes TypeSafe's **Jev** judgment model, via
 [OpenRouter](https://openrouter.ai)'s SystemOne API, as 14 tools -- as an
 MCP (Model Context Protocol) server for [opencode](https://opencode.ai) or
 any other MCP-compatible client, **and** as a plain Unix CLI (`jev score
@@ -8,7 +8,7 @@ any other MCP-compatible client, **and** as a plain Unix CLI (`jev score
 underlying logic, either way -- see
 [Two run modes, one registration](docs/architecture.md#two-run-modes-one-registration).
 
-## What is jev-mcp?
+## What is jev-cli?
 
 Jev doesn't generate free text. It answers typed, closed-form questions and
 returns calibrated probability distributions over every possible answer in
@@ -19,7 +19,7 @@ distribution over an integer scale) -- batched, composed, and thresholded
 for a specific job. `jev_ask` is the escape hatch: it exposes those
 primitives almost directly for anything the other 13 tools don't cover.
 
-Out of the box, jev-mcp includes:
+Out of the box, jev-cli includes:
 
 - **14 tools** — `jev_score`, `jev_verify`, `jev_screen`, `jev_check`,
   `jev_match`, `jev_rerank`, `jev_classify`, `jev_decide`, `jev_compare`,
@@ -39,7 +39,7 @@ Out of the box, jev-mcp includes:
   shared by every tool: never a fabricated verdict, thresholds with
   documented defaults, one batched SystemOne request instead of a loop.
 - **Reuses opencode's own OpenRouter login** — if you're already logged into
-  OpenRouter through [opencode](https://opencode.ai), jev-mcp picks up that
+  OpenRouter through [opencode](https://opencode.ai), jev-cli picks up that
   same key automatically, with zero extra configuration; see
   [Configuration](docs/configuration.md#api-key-required) for the exact
   fallback order and when you'd want to override it.
@@ -75,11 +75,11 @@ OPENROUTER_API_KEY=sk-or-... ./jev score --state "2+2=4" --scale-min 0 --scale-m
 It's runnable with no local checkout or build step at all:
 
 ```sh
-go run github.com/pyck-ai/jev-mcp@main score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
+go run github.com/pyck-ai/jev-cli@main score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
 ```
 
 To use it from an MCP client, see
-[Using jev-mcp from an MCP client](docs/development.md#using-jev-mcp-from-an-mcp-client)
+[Using jev from an MCP client](docs/development.md#using-jev-from-an-mcp-client)
 for opencode and Claude Code examples (or a locally built binary instead of
 `go run`, if you prefer).
 
@@ -98,7 +98,7 @@ for opencode and Claude Code examples (or a locally built binary instead of
 
 ## Inspiration
 
-jev-mcp is a clean-room implementation (no shared code), but its design was
+jev-cli is a clean-room implementation (no shared code), but its design was
 shaped by three existing Jev/SystemOne MCP servers, each analyzed before
 writing a line of this one:
 

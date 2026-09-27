@@ -1,6 +1,6 @@
 # Configuration
 
-Where jev-mcp gets its OpenRouter API key, the optional config file and the
+Where jev-cli gets its OpenRouter API key, the optional config file and the
 environment variables that override it, the audit log every tool call
 writes, and how per-call/session budget caps are enforced. See
 [Development](development.md) for build/test/run commands, and
@@ -9,7 +9,7 @@ tool.
 
 ## API key (required)
 
-jev-mcp resolves the OpenRouter API key it uses at startup, in this order:
+jev-cli resolves the OpenRouter API key it uses at startup, in this order:
 
 1. **`OPENROUTER_API_KEY` environment variable**, if set and non-empty:
 
@@ -19,7 +19,7 @@ jev-mcp resolves the OpenRouter API key it uses at startup, in this order:
 
 2. **Otherwise, opencode's own stored credentials.** If you already use
    [opencode](https://opencode.ai) and have logged into OpenRouter there,
-   jev-mcp will reuse that key instead of requiring a separate one. It reads
+   jev-cli will reuse that key instead of requiring a separate one. It reads
    (never writes, never requires opencode to be running) opencode's static
    credential file at `$XDG_DATA_HOME/opencode/auth.json`, falling back to
    `~/.local/share/opencode/auth.json` when `XDG_DATA_HOME` is unset. Only an
@@ -29,7 +29,7 @@ jev-mcp resolves the OpenRouter API key it uses at startup, in this order:
    ```
    An oauth-based opencode login for OpenRouter, if that's ever a thing
    (`"type": "oauth"`, like the `anthropic` entry in opencode's own example),
-   is **not** usable this way and is skipped — jev-mcp only ever sends a
+   is **not** usable this way and is skipped — jev-cli only ever sends a
    plain `Authorization: Bearer <key>` header, it doesn't implement OAuth. A
    missing, unreadable, or malformed `auth.json` (bad JSON, wrong shape,
    permission denied) is treated the same as "no key here" and simply falls
@@ -38,7 +38,7 @@ jev-mcp resolves the OpenRouter API key it uses at startup, in this order:
 If neither source yields a key, the server fails fast at startup with a
 clear message on stderr (see [Running standalone](development.md#running-standalone) for
 what that looks like) — it never silently starts with no auth. Regardless
-of which source is used, the resolved key is never read from jev-mcp's own
+of which source is used, the resolved key is never read from jev-cli's own
 config file below, never logged, and never included in an error message; a
 startup log line on stderr does say *which source* was used (e.g. `using
 OpenRouter key from env` or `using OpenRouter key from opencode auth store
@@ -48,9 +48,17 @@ configuration snapshot (see [`jev_doctor`](tool-reference.md#the-jev_doctor-tool
 
 ## Config file (optional)
 
-Path: `~/.config/jev-mcp/config.json` (more precisely: `$XDG_CONFIG_HOME` or
-`~/.config` if unset, joined with `jev-mcp/config.json` — this is Go's
-standard `os.UserConfigDir()`). Override the path with `JEV_MCP_CONFIG_PATH`.
+Path: `~/.config/jev-cli/config.json` (more precisely: `$XDG_CONFIG_HOME` or
+`~/.config` if unset, joined with `jev-cli/config.json` — this is Go's
+standard `os.UserConfigDir()`). Override the path with `JEV_CLI_CONFIG_PATH`.
+
+**Rename fallback.** This project was previously called jev-mcp. If
+`~/.config/jev-cli/config.json` doesn't exist but the old
+`~/.config/jev-mcp/config.json` does, the old file is used. The old
+environment variable names (`JEV_MCP_CONFIG_PATH`, `JEV_MCP_MODEL`) are
+still honored too; when both old and new names are set, the new one wins.
+The audit log (below) falls back to its old `jev-mcp` location the same
+way. To finish migrating, move the old directories to their new names.
 The file is entirely optional; if missing, the defaults below are used
 as-is. If present, any field you omit keeps its default value.
 
@@ -78,14 +86,14 @@ as-is. If present, any field you omit keeps its default value.
 
 | Variable | Effect |
 |---|---|
-| `JEV_MCP_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool — see the doc comment on `config.applyEnvOverrides` in `internal/config/config.go` for the precedence rationale. |
-| `JEV_MCP_CONFIG_PATH` | Overrides the config file path. |
+| `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool — see the doc comment on `config.applyEnvOverrides` in `internal/config/config.go` for the precedence rationale. |
+| `JEV_CLI_CONFIG_PATH` | Overrides the config file path. |
 
 ## Audit log
 
 Every tool call appends one JSON line to
-`$XDG_DATA_HOME/jev-mcp/audit.jsonl` (falling back to
-`~/.local/share/jev-mcp/audit.jsonl` when `XDG_DATA_HOME` is unset). Parent
+`$XDG_DATA_HOME/jev-cli/audit.jsonl` (falling back to
+`~/.local/share/jev-cli/audit.jsonl` when `XDG_DATA_HOME` is unset). Parent
 directories are created automatically. The judged input is **never** stored
 verbatim: `jev_score` (whose input is a single `state` string) hashes that
 string directly (`input_state_sha256`); every other tool hashes its whole

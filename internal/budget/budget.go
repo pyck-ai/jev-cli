@@ -1,5 +1,5 @@
 // Package budget tracks cumulative USD spend for the lifetime of one
-// jev-mcp server process ("session") and enforces the session-level cap
+// jev-cli server process ("session") and enforces the session-level cap
 // from config.Budget.MaxUSDPerSession.
 //
 // # Why only the session cap is enforced pre-call

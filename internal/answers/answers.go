@@ -39,7 +39,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
 )
 
 // probTolerance is the slack applied to individual probability values

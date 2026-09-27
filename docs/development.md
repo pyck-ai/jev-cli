@@ -1,6 +1,6 @@
 # Development
 
-How to build jev-mcp, run its test suite, sanity-check the binary
+How to build jev-cli, run its test suite, sanity-check the binary
 standalone, and use it either as an MCP server or as a Unix CLI tool. See
 [Configuration](configuration.md) for the API key, config file, and audit
 log this all depends on, and [Architecture](architecture.md) for how the
@@ -45,7 +45,7 @@ real `~/.local/share/opencode/auth.json`.
 ## Running standalone
 
 With no arguments (or `mcp` as the only argument), `jev` speaks MCP over
-stdio -- see [Using jev-mcp from an MCP client](#using-jev-mcp-from-an-mcp-client)
+stdio -- see [Using jev from an MCP client](#using-jev-from-an-mcp-client)
 for that mode. This section is about running it directly for a quick
 sanity check:
 
@@ -57,11 +57,11 @@ You should see two banner lines on stderr — which API key source was used,
 then the usual startup summary:
 
 ```
-jev-mcp: using OpenRouter key from env
-jev-mcp: starting (tools=14, default_model=~typesafe/jev-latest, config=..., audit_log=...)
+jev: using OpenRouter key from env
+jev: starting (tools=14, default_model=~typesafe/jev-latest, config=..., audit_log=...)
 ```
 
-(The first line reads `jev-mcp: using OpenRouter key from opencode auth
+(The first line reads `jev: using OpenRouter key from opencode auth
 store at <path>` instead when falling back to opencode's stored credentials
 — see [API key](configuration.md#api-key-required) — and never prints the key value either
 way. `tools=14` counts every self-registered tool, i.e. it moves in lockstep
@@ -74,16 +74,12 @@ resolved model, since different tools may resolve different models via
 you'll instead see a one-line `no OpenRouter API key available: ...` error
 and the process exits non-zero.
 
-(The `jev-mcp:` log prefix is unchanged from before the binary was renamed
-to `jev` -- it's a hardcoded string in `main.go`'s log lines, unrelated to
-the built binary's filename.)
+## Using jev from an MCP client
 
-## Using jev-mcp from an MCP client
-
-jev-mcp is a stdio MCP server: any MCP-compatible client can spawn it
+jev-cli is a stdio MCP server: any MCP-compatible client can spawn it
 directly. Two invocation styles work everywhere below:
 
-- **`go run github.com/pyck-ai/jev-mcp@main`** — no local checkout or build
+- **`go run github.com/pyck-ai/jev-cli@main`** — no local checkout or build
   step; Go resolves, builds, and runs the module in one command. No tagged
   release is required: `@main` names the branch directly, which Go resolves
   to its current commit via a pseudo-version (this project deliberately
@@ -109,19 +105,19 @@ Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-s
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@main"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-cli@main"],
       "enabled": true
     }
   }
 }
 ```
 
-Since jev-mcp is being registered from *inside* opencode here, the
+Since jev-cli is being registered from *inside* opencode here, the
 credential fallback described under [API key](configuration.md#api-key-required) usually
 means that's all you need: if you've already logged into OpenRouter through
 opencode (`~/.local/share/opencode/auth.json` has a `"type": "api"`
-`openrouter` entry), jev-mcp will pick that up automatically with no
-`environment` block at all. Add one explicitly only if you want jev-mcp to
+`openrouter` entry), jev-cli will pick that up automatically with no
+`environment` block at all. Add one explicitly only if you want jev-cli to
 use a *different* OpenRouter key than the rest of opencode:
 
 ```json
@@ -129,7 +125,7 @@ use a *different* OpenRouter key than the rest of opencode:
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-mcp@main"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-cli@main"],
       "enabled": true,
       "environment": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
@@ -146,7 +142,7 @@ is checked into version control.
 Register a user-scoped stdio server with `claude mcp add`:
 
 ```sh
-claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-mcp@main
+claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-cli@main
 ```
 
 Or add it directly to a project's `.mcp.json` for team-wide, version-controlled
@@ -158,7 +154,7 @@ config:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-mcp@main"]
+      "args": ["run", "github.com/pyck-ai/jev-cli@main"]
     }
   }
 }
@@ -175,7 +171,7 @@ block to the server entry above:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-mcp@main"],
+      "args": ["run", "github.com/pyck-ai/jev-cli@main"],
       "env": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
   }

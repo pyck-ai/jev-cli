@@ -1,7 +1,7 @@
-// Command jev-mcp is an MCP (Model Context Protocol) server exposing
-// TypeSafe's "Jev" judgment model, via OpenRouter's SystemOne API, as a set
-// of MCP tools. See README.md for setup, configuration, and the tool
-// reference.
+// Command jev exposes TypeSafe's "Jev" judgment model, via OpenRouter's
+// SystemOne API, as a set of tools: as an MCP (Model Context Protocol)
+// server over stdio, and as CLI subcommands (`jev score ...`). See
+// README.md for setup, configuration, and the tool reference.
 //
 // Tools are self-registering plugins (see internal/registry's package doc
 // comment for the full mechanism): this file has no knowledge of any
@@ -27,27 +27,27 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/audit"
-	"github.com/pyck-ai/jev-mcp/internal/budget"
-	"github.com/pyck-ai/jev-mcp/internal/config"
-	"github.com/pyck-ai/jev-mcp/internal/credentials"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
-	"github.com/pyck-ai/jev-mcp/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/audit"
+	"github.com/pyck-ai/jev-cli/internal/budget"
+	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/credentials"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/registry"
 
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/ask"      // jev_ask
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/check"    // jev_check
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/classify" // jev_classify
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/compare"  // jev_compare
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/decide"   // jev_decide
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/doctor"   // jev_doctor
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/extract"  // jev_extract
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/gate"     // jev_gate
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/match"    // jev_match
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/rerank"   // jev_rerank
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/review"   // jev_review
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/score"    // jev_score
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/screen"   // jev_screen
-	_ "github.com/pyck-ai/jev-mcp/internal/tools/verify"   // jev_verify
+	_ "github.com/pyck-ai/jev-cli/internal/tools/ask"      // jev_ask
+	_ "github.com/pyck-ai/jev-cli/internal/tools/check"    // jev_check
+	_ "github.com/pyck-ai/jev-cli/internal/tools/classify" // jev_classify
+	_ "github.com/pyck-ai/jev-cli/internal/tools/compare"  // jev_compare
+	_ "github.com/pyck-ai/jev-cli/internal/tools/decide"   // jev_decide
+	_ "github.com/pyck-ai/jev-cli/internal/tools/doctor"   // jev_doctor
+	_ "github.com/pyck-ai/jev-cli/internal/tools/extract"  // jev_extract
+	_ "github.com/pyck-ai/jev-cli/internal/tools/gate"     // jev_gate
+	_ "github.com/pyck-ai/jev-cli/internal/tools/match"    // jev_match
+	_ "github.com/pyck-ai/jev-cli/internal/tools/rerank"   // jev_rerank
+	_ "github.com/pyck-ai/jev-cli/internal/tools/review"   // jev_review
+	_ "github.com/pyck-ai/jev-cli/internal/tools/score"    // jev_score
+	_ "github.com/pyck-ai/jev-cli/internal/tools/screen"   // jev_screen
+	_ "github.com/pyck-ai/jev-cli/internal/tools/verify"   // jev_verify
 )
 
 // serverVersion is this MCP server's own version, reported in its
@@ -78,7 +78,7 @@ func main() {
 	// live: 2026-09-26, this flag alone is what took a `tools/list` dump
 	// from having 12 tools with the null-typed-array pattern to zero.
 	if err := os.Setenv("JSONSCHEMAGODEBUG", "typeschemasnull=1"); err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: warning: could not set JSONSCHEMAGODEBUG: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: warning: could not set JSONSCHEMAGODEBUG: %v\n", err)
 	}
 
 	// Mode dispatch. With no arguments, or "mcp" as the first argument,
@@ -97,7 +97,7 @@ func main() {
 	runMCPServer()
 }
 
-// runMCPServer is jev-mcp's default run mode: build the shared
+// runMCPServer is jev-cli's default run mode: build the shared
 // dependencies, register every tool as an MCP tool, and serve MCP over
 // stdio until the client disconnects or an error occurs. Unchanged from
 // before this binary supported any other mode, except that its
@@ -115,16 +115,16 @@ func runMCPServer() {
 	// registered tool may resolve a different model via
 	// cfg.ToolModelOverrides) -- it reports the tool count and the
 	// fallback default_model instead.
-	fmt.Fprintf(os.Stderr, "jev-mcp: starting (tools=%d, default_model=%s, config=%s, audit_log=%s)\n",
+	fmt.Fprintf(os.Stderr, "jev: starting (tools=%d, default_model=%s, config=%s, audit_log=%s)\n",
 		len(registry.All()), deps.Config.DefaultModel, mustConfigPath(), mustAuditPath())
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: server exited with error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: server exited with error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// runCLI is jev-mcp's CLI run mode: build a cobra root command and let
+// runCLI is jev-cli's CLI run mode: build a cobra root command and let
 // every registered tool's RegisterCLI hook add itself as a subcommand
 // (see newCLIRoot), then execute it against the process's actual
 // arguments (cobra reads os.Args itself here -- root.Execute is never
@@ -179,14 +179,14 @@ func newCLIRoot(provider registry.DepsProvider) *cobra.Command {
 
 // buildDeps resolves the API key and config and builds the shared
 // *registry.Deps every tool's RegisterMCP/RegisterCLI needs -- identically
-// for both of jev-mcp's run modes. This is exactly the construction
+// for both of jev-cli's run modes. This is exactly the construction
 // sequence this file always had before it supported any mode but the MCP
 // server, factored out so runCLI can share it rather than duplicating it.
 //
 // The API key is resolved here (env var, falling back to opencode's own
 // stored credentials -- see internal/credentials) and passed around
 // out-of-band from *config.Config: per the project's security
-// requirements it must never be read from the jev-mcp config file,
+// requirements it must never be read from the jev-cli config file,
 // logged, or included in any error message, from either source. A key is
 // required at startup -- fail fast with a clear error rather than
 // deferring the failure to the first tool call.
@@ -198,21 +198,21 @@ func newCLIRoot(provider registry.DepsProvider) *cobra.Command {
 func buildDeps(exitCode int) *registry.Deps {
 	cred, ok := credentials.Resolve()
 	if !ok {
-		fmt.Fprintf(os.Stderr, "jev-mcp: no OpenRouter API key available: set %s, or configure an \"openrouter\" credential of type \"api\" in opencode's auth store; refusing to start.\n", credentials.EnvVar)
+		fmt.Fprintf(os.Stderr, "jev: no OpenRouter API key available: set %s, or configure an \"openrouter\" credential of type \"api\" in opencode's auth store; refusing to start.\n", credentials.EnvVar)
 		os.Exit(exitCode)
 	}
 	apiKey := cred.Key
-	fmt.Fprintf(os.Stderr, "jev-mcp: using OpenRouter key from %s\n", cred.Source)
+	fmt.Fprintf(os.Stderr, "jev: using OpenRouter key from %s\n", cred.Source)
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: loading config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: loading config: %v\n", err)
 		os.Exit(exitCode)
 	}
 
 	auditPath, err := audit.DefaultPath()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: resolving audit log path: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jev: resolving audit log path: %v\n", err)
 		os.Exit(exitCode)
 	}
 	auditLog := audit.NewLogger(auditPath)
@@ -241,7 +241,7 @@ func buildDeps(exitCode int) *registry.Deps {
 // os.Exit-prone startup code or touching the real network.
 func newServer(deps *registry.Deps) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "jev-mcp",
+		Name:    "jev-cli",
 		Version: serverVersion,
 	}, nil)
 

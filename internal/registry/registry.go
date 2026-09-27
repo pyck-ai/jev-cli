@@ -1,4 +1,4 @@
-// Package registry implements jev-mcp's self-registering tool-plugin
+// Package registry implements jev-cli's self-registering tool-plugin
 // mechanism, modeled directly on Go's database/sql driver pattern (e.g.
 // `import _ "github.com/lib/pq"`): each MCP tool lives in its own package
 // under internal/tools/<name>/, and that package's init() function calls
@@ -8,8 +8,8 @@
 // # Two run modes, one registration
 //
 // A Tool carries both a RegisterMCP hook (wiring it onto an *mcp.Server,
-// for jev-mcp's default MCP-server run mode) and a RegisterCLI hook
-// (wiring it onto a *cobra.Command, for jev-mcp's CLI run mode --
+// for jev-cli's default MCP-server run mode) and a RegisterCLI hook
+// (wiring it onto a *cobra.Command, for jev-cli's CLI run mode --
 // invoked as `jev <name> ...` instead of speaking MCP over stdio). Only
 // RegisterMCP is populated by any tool today: RegisterCLI is nil for
 // every one of the 14 existing tools, and main.go's CLI dispatch path
@@ -21,7 +21,7 @@
 // Adding a tool: create a new package under internal/tools/<name>/ whose
 // init() calls registry.Register(...) (see internal/tools/score/score.go
 // for the reference implementation), then add one blank-import line to
-// main.go: `_ "github.com/pyck-ai/jev-mcp/internal/tools/<name>"`.
+// main.go: `_ "github.com/pyck-ai/jev-cli/internal/tools/<name>"`.
 //
 // Removing a tool: delete that package directory, then delete its
 // blank-import line from main.go. No other file needs to change either
@@ -45,10 +45,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/audit"
-	"github.com/pyck-ai/jev-mcp/internal/budget"
-	"github.com/pyck-ai/jev-mcp/internal/config"
-	"github.com/pyck-ai/jev-mcp/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/audit"
+	"github.com/pyck-ai/jev-cli/internal/budget"
+	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/openrouter"
 )
 
 // Deps is the shared application infrastructure every tool handler may
@@ -85,7 +85,7 @@ type Deps struct {
 type DepsProvider func() *Deps
 
 // Tool is what a tool package's init() passes to Register: everything
-// main.go needs to activate that tool in either of jev-mcp's run modes,
+// main.go needs to activate that tool in either of jev-cli's run modes,
 // without main.go knowing anything about the tool itself.
 type Tool struct {
 	// Name is this tool's CLI subcommand name, e.g. "score" -- bare, no

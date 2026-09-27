@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pyck-ai/jev-mcp/internal/cliformat"
-	"github.com/pyck-ai/jev-mcp/internal/cliinput"
-	"github.com/pyck-ai/jev-mcp/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/cliformat"
+	"github.com/pyck-ai/jev-cli/internal/cliinput"
+	"github.com/pyck-ai/jev-cli/internal/registry"
 )
 
 const cliShortDescription = "Batch-verify claims against evidence"

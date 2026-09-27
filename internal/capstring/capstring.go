@@ -1,5 +1,5 @@
 // Package capstring implements the one small piece of input hygiene most
-// of jev-mcp's tools need: truncating a caller-supplied text field to a
+// of jev-cli's tools need: truncating a caller-supplied text field to a
 // hard rune-count cap before it goes anywhere near a prompt, so a
 // pathologically large document/passage/diff can't blow past a tool's
 // documented size budget or balloon the cost of a single SystemOne call.
