@@ -26,12 +26,13 @@ Out of the box, jev-cli includes:
   `jev_extract`, `jev_review`, `jev_gate`, `jev_doctor`, and `jev_ask`. See
   [Tool reference](docs/tool-reference.md) for the full input/output spec of
   each.
-- **Both an MCP server and a CLI, from one binary**: `jev` with no
-  arguments (or `jev mcp`) speaks MCP over stdio; `jev score ...`, `jev
-  verify ...`, etc. run the exact same tool logic as a Unix command, with
-  flags or a `--json` blob for input, human-readable text or `-o json` for
-  output, and an exit code reflecting the tool's own verdict — see
-  [CLI usage](docs/development.md#cli-usage).
+- **Both an MCP server and a CLI, from one binary**: `jev mcp` speaks MCP
+  over stdio; `jev score ...`, `jev verify ...`, etc. run the exact same
+  tool logic as a Unix command, with flags or a `--json` blob for input,
+  human-readable text or `-o json` for output, and an exit code reflecting
+  the tool's own verdict — see [CLI usage](docs/development.md#cli-usage).
+  Plain `jev` is reserved for an interactive TUI, which is **not
+  implemented yet** (it prints an error and exits 3).
 - **A [self-registering plugin architecture](docs/architecture.md#plugin-architecture)**:
   adding or removing a tool is a one-package, one-line change, and involves
   editing no other file.
@@ -68,8 +69,8 @@ jev score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1
 jev --help
 ```
 
-Or as an MCP server: with no arguments, `jev` speaks MCP over stdio, so an
-MCP client's server command is just `jev`. See
+Or as an MCP server: `jev mcp` speaks MCP over stdio, so an MCP client's
+server command is `jev mcp`. See
 [Using jev from an MCP client](docs/development.md#using-jev-from-an-mcp-client)
 for opencode and Claude Code configs.
 

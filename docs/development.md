@@ -51,13 +51,12 @@ real `~/.local/share/opencode/auth.json`.
 
 ## Running standalone
 
-With no arguments (or `mcp` as the only argument), `jev` speaks MCP over
-stdio -- see [Using jev from an MCP client](#using-jev-from-an-mcp-client)
-for that mode. This section is about running it directly for a quick
-sanity check:
+`jev mcp` speaks MCP over stdio -- see
+[Using jev from an MCP client](#using-jev-from-an-mcp-client) for that mode.
+This section is about running it directly for a quick sanity check:
 
 ```sh
-OPENROUTER_API_KEY=sk-or-... ./jev
+OPENROUTER_API_KEY=sk-or-... ./jev mcp
 ```
 
 You should see two banner lines on stderr — which API key source was used,
@@ -83,8 +82,10 @@ and the process exits non-zero.
 
 ## Using jev from an MCP client
 
-`jev` with no arguments is a stdio MCP server, so any MCP client can spawn
-it. There are two ways to point a client at it:
+`jev mcp` is a stdio MCP server, so any MCP client can spawn it. (Plain
+`jev` with no arguments is reserved for a future interactive TUI and
+currently exits with an error, so the `mcp` argument is required.) There
+are two ways to point a client at it:
 
 - **`go run github.com/pyck-ai/jev-cli/cmd/jev@main`**: tracks the `main`
   branch. Each time the client starts the server, Go looks up the branch's
@@ -95,15 +96,15 @@ it. There are two ways to point a client at it:
   slower because of the lookup and compile. Use `@<commit>` instead if you
   want a fixed version.
 - **An installed binary**: `go install github.com/pyck-ai/jev-cli/cmd/jev@main`,
-  then use `jev` as the command. Faster to start and works offline; update
-  it by re-running `go install`.
+  then use `jev mcp` as the command. Faster to start and works offline;
+  update it by re-running `go install`.
 
 The examples below use `go run`. To use an installed binary, replace the
-command with `jev` (opencode: `"command": ["jev"]`; Claude Code:
-`claude mcp add --transport stdio jev -- jev`).
+command with `jev mcp` (opencode: `"command": ["jev", "mcp"]`; Claude Code:
+`claude mcp add --transport stdio jev -- jev mcp`).
 
 To run your own checkout instead (for example while editing the tools),
-point the command at it: `go run -C /path/to/jev-cli ./cmd/jev`. Every
+point the command at it: `go run -C /path/to/jev-cli ./cmd/jev mcp`. Every
 server start then builds your working tree, so an edit takes effect the
 next time the client restarts or reconnects the server.
 
@@ -117,7 +118,7 @@ Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-s
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-cli/cmd/jev@main"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-cli/cmd/jev@main", "mcp"],
       "enabled": true
     }
   }
@@ -137,7 +138,7 @@ use a *different* OpenRouter key than the rest of opencode:
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-cli/cmd/jev@main"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-cli/cmd/jev@main", "mcp"],
       "enabled": true,
       "environment": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
@@ -154,7 +155,7 @@ is checked into version control.
 Register a user-scoped stdio server with `claude mcp add`:
 
 ```sh
-claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-cli/cmd/jev@main
+claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-cli/cmd/jev@main mcp
 ```
 
 Or add it directly to a project's `.mcp.json` for team-wide, version-controlled
@@ -166,7 +167,7 @@ config:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-cli/cmd/jev@main"]
+      "args": ["run", "github.com/pyck-ai/jev-cli/cmd/jev@main", "mcp"]
     }
   }
 }
@@ -183,7 +184,7 @@ block to the server entry above:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-cli/cmd/jev@main"],
+      "args": ["run", "github.com/pyck-ai/jev-cli/cmd/jev@main", "mcp"],
       "env": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
   }
@@ -196,10 +197,11 @@ Every one of the 14 tools is also a plain Unix subcommand: `jev score
 ...`, `jev verify ...`, and so on (see
 [Two run modes, one registration](architecture.md#two-run-modes-one-registration)
 for how this shares all its logic with the MCP tool of the same name —
-there is exactly one implementation per tool, not two). `jev` with no
-arguments, or `jev mcp`, is unchanged MCP-server mode; any other first
-argument is a CLI subcommand instead. `jev --help` and `jev <tool>
---help` work with no `OPENROUTER_API_KEY`/credentials configured at all
+there is exactly one implementation per tool, not two). `jev mcp` is the
+MCP server; plain `jev` with no arguments is reserved for an interactive
+TUI that is not implemented yet (it prints an error and exits 3). `jev
+--help` and `jev <tool> --help` work with no
+`OPENROUTER_API_KEY`/credentials configured at all
 — building the credential/config/audit plumbing is deferred until a
 subcommand actually runs, never done just to parse flags or print help.
 

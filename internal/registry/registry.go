@@ -8,13 +8,11 @@
 // # Two run modes, one registration
 //
 // A Tool carries both a RegisterMCP hook (wiring it onto an *mcp.Server,
-// for jev-cli's default MCP-server run mode) and a RegisterCLI hook
-// (wiring it onto a *cobra.Command, for jev-cli's CLI run mode --
-// invoked as `jev <name> ...` instead of speaking MCP over stdio). Only
-// RegisterMCP is populated by any tool today: RegisterCLI is nil for
-// every one of the 14 existing tools, and cmd/jev/main.go's CLI dispatch path
-// skips any Tool whose RegisterCLI is nil. Populating RegisterCLI per
-// tool is deliberately left to a later pass.
+// for `jev mcp`) and a RegisterCLI hook (adding it as a subcommand of the
+// *cobra.Command root, for `jev <name> ...`). Every tool sets both hooks,
+// and both call the same core function, so the two modes share one
+// implementation. cmd/jev/main.go skips a Tool whose RegisterCLI is nil,
+// so a tool can still be MCP-only if it ever needs to be.
 //
 // # Adding or removing a tool
 //

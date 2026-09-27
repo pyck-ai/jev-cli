@@ -29,14 +29,20 @@ Every tool is a self-registering plugin, modeled directly on Go's
 
 ### CLI mode
 
-`jev-cli`'s binary mode-switches on its first argument: with no arguments,
-or `mcp` as the first argument, it runs the MCP server described above,
-unchanged. Any other first argument instead builds a `cobra` root command
-(`Use: "jev"`) and loops over `registry.All()` calling `t.RegisterCLI(root,
-provider)` for every tool, where `provider` is a *lazy* `func()
-*registry.Deps` — invoked only from a subcommand's actual run path, never
-during flag parsing or help, so `jev --help` and `jev <tool> --help` work
-with no credentials configured at all.
+One `cobra` command tree (`newRootCmd` in `cmd/jev/main.go`) covers all
+three modes:
+
+| Invocation | Mode |
+|---|---|
+| `jev` | Interactive TUI. **Not implemented yet**: the root command returns an error and the process exits 3. |
+| `jev <tool> ...` | Run one tool non-interactively (below). |
+| `jev mcp` | The MCP server described above. |
+
+For the tool subcommands, `newRootCmd` loops over `registry.All()` calling
+`t.RegisterCLI(root, provider)` for every tool, where `provider` is a
+*lazy* `func() *registry.Deps` — invoked only from a subcommand's actual
+run path, never during flag parsing or help, so `jev --help` and `jev
+<tool> --help` work with no credentials configured at all.
 
 Every tool's `RegisterCLI` follows the same shape (see
 `internal/tools/score/cli.go` for the reference implementation any new

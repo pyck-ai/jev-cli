@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,26 +232,25 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 	}
 }
 
-// TestNewCLIRoot_RegistersOnlyMigratedTools is the CLI-side counterpart
-// to TestNewServer_RegistersEveryToolExactlyOnce: MCP mode always
-// exposes all 14 tools (asserted above), but CLI mode only exposes a
-// subcommand for tools whose RegisterCLI is non-nil. As of this pass,
-// that's score and doctor; every other tool's RegisterCLI is still nil
-// (see internal/registry's package doc comment) pending a later pass.
-// This test is a deliberate tripwire: it must be updated (by adding the
-// newly-migrated tool's name to want) every time another tool gains a
-// CLI subcommand, so the roster here always reflects reality rather
-// than silently drifting stale.
-func TestNewCLIRoot_RegistersOnlyMigratedTools(t *testing.T) {
-	provider := func() *registry.Deps {
-		t.Fatal("provider should not be invoked merely by building the CLI root or listing its subcommands")
+// noDepsProvider fails the test if a tool actually tries to build its
+// dependencies: none of the tests below run a tool.
+func noDepsProvider(t *testing.T) registry.DepsProvider {
+	return func() *registry.Deps {
+		t.Fatal("deps provider must not be invoked when building the command tree, printing help, or running mcp")
 		return nil
 	}
-	root := newCLIRoot(provider)
+}
+
+// TestNewRootCmd_Subcommands is the CLI-side counterpart to
+// TestNewServer_RegistersEveryToolExactlyOnce: the root must have exactly
+// one subcommand per tool plus `mcp`. It's a tripwire: update want when a
+// tool is added or removed.
+func TestNewRootCmd_Subcommands(t *testing.T) {
+	root := newRootCmd(noDepsProvider(t), func() {})
 
 	want := []string{
 		"ask", "check", "classify", "compare", "decide",
-		"doctor", "extract", "gate", "match", "rerank",
+		"doctor", "extract", "gate", "match", "mcp", "rerank",
 		"review", "score", "screen", "verify",
 	}
 	var got []string
@@ -260,6 +262,59 @@ func TestNewCLIRoot_RegistersOnlyMigratedTools(t *testing.T) {
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		t.Errorf("CLI subcommands = %v, want %v", got, want)
+		t.Errorf("subcommands = %v, want %v", got, want)
+	}
+}
+
+// TestRootCmd_NoArgsIsNotImplementedTUI: plain `jev` is reserved for the
+// interactive TUI, which doesn't exist yet. It must fail (main turns that
+// into exit 3) instead of silently starting the MCP server or printing help.
+func TestRootCmd_NoArgsIsNotImplementedTUI(t *testing.T) {
+	mcpStarted := false
+	root := newRootCmd(noDepsProvider(t), func() { mcpStarted = true })
+	root.SetArgs([]string{})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	err := root.Execute()
+	if !errors.Is(err, errTUINotImplemented) {
+		t.Fatalf("Execute() error = %v, want errTUINotImplemented", err)
+	}
+	if mcpStarted {
+		t.Error("plain `jev` started the MCP server; that is now `jev mcp`")
+	}
+	if strings.Contains(out.String(), "Usage:") {
+		t.Errorf("not-implemented error should not dump usage; got:\n%s", out.String())
+	}
+}
+
+func TestRootCmd_McpStartsServer(t *testing.T) {
+	mcpStarted := false
+	root := newRootCmd(noDepsProvider(t), func() { mcpStarted = true })
+	root.SetArgs([]string{"mcp"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute(mcp) error = %v", err)
+	}
+	if !mcpStarted {
+		t.Error("`jev mcp` did not start the MCP server")
+	}
+}
+
+func TestRootCmd_HelpDescribesModes(t *testing.T) {
+	root := newRootCmd(noDepsProvider(t), func() {})
+	root.SetArgs([]string{"--help"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute(--help) error = %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"NOT IMPLEMENTED YET", "jev mcp", "Tool commands:", "Server:", "score", "mcp"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("--help output missing %q:\n%s", want, help)
+		}
 	}
 }

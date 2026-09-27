@@ -11,16 +11,18 @@
 // delete that package plus its blank-import line. No other code in this
 // file changes either way.
 //
-// This binary mode-switches on its first argument (see main): with no
-// arguments, or "mcp" as the first argument, it runs as an MCP server
-// (runMCPServer, unchanged from before this file supported any other
-// mode). Any other first argument runs it as a CLI instead (runCLI) --
-// scaffolding for now, since every tool's registry.Tool.RegisterCLI is
-// nil today; a later pass will populate it per tool.
+// The binary has three modes, all dispatched by one cobra command tree
+// (see newRootCmd):
+//
+//	jev              interactive TUI -- not implemented yet; exits 3 with a
+//	                 pointer to the other two modes
+//	jev <tool> ...   run one tool non-interactively (jev score, jev verify, ...)
+//	jev mcp          serve every tool over MCP on stdio (runMCPServer)
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -81,30 +83,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "jev: warning: could not set JSONSCHEMAGODEBUG: %v\n", err)
 	}
 
-	// Mode dispatch. With no arguments, or "mcp" as the first argument,
-	// run the MCP server exactly as this binary always has
-	// (runMCPServer). Any other first argument switches to CLI mode
-	// instead (runCLI): a cobra root command is built, and every
-	// registered tool's RegisterCLI hook -- see internal/registry's
-	// package doc comment -- gets a chance to add itself as a
-	// subcommand. This is scaffolding only: every tool's RegisterCLI is
-	// nil today, so the CLI root command currently has zero subcommands;
-	// a later pass will populate RegisterCLI per tool.
-	if len(os.Args) > 1 && os.Args[1] != "mcp" {
-		runCLI()
-		return
+	root := newRootCmd(func() *registry.Deps { return buildDeps(3) }, runMCPServer)
+
+	// Exit 3 on any Execute error (unknown command, bad flags, the
+	// not-yet-implemented TUI): the CLI exit-code scheme reserves 3 for
+	// hard errors, 0/1/2 for verdict outcomes.
+	if err := root.Execute(); err != nil {
+		os.Exit(3)
 	}
-	runMCPServer()
 }
 
-// runMCPServer is jev-cli's default run mode: build the shared
-// dependencies, register every tool as an MCP tool, and serve MCP over
-// stdio until the client disconnects or an error occurs. Unchanged from
-// before this binary supported any other mode, except that its
-// tool-registration loop (inside newServer) now invokes each
-// registry.Tool's RegisterMCP field instead of calling a bare
-// registry.Registrar function value -- that type no longer exists, see
-// internal/registry's package doc comment.
+// runMCPServer is the `jev mcp` mode: build the shared dependencies,
+// register every tool as an MCP tool, and serve MCP over stdio until the
+// client disconnects or an error occurs.
 func runMCPServer() {
 	deps := buildDeps(1)
 
@@ -124,54 +115,73 @@ func runMCPServer() {
 	}
 }
 
-// runCLI is jev-cli's CLI run mode: build a cobra root command and let
-// every registered tool's RegisterCLI hook add itself as a subcommand
-// (see newCLIRoot), then execute it against the process's actual
-// arguments (cobra reads os.Args itself here -- root.Execute is never
-// given an explicit SetArgs).
-//
-// The deps handed to RegisterCLI are a LAZY provider, deliberately not a
-// built *Deps: building them resolves the OpenRouter credential, the
-// config file, and the audit log, and fail-fasts the process if any is
-// missing. Deferring that until a subcommand actually runs (the provider
-// is only invoked from a command's RunE, never during flag parsing) is
-// what lets `jev --help`, `jev score --help`, and cobra's unknown-flag
-// errors work on a machine with no credentials configured at all.
-func runCLI() {
-	root := newCLIRoot(func() *registry.Deps { return buildDeps(3) })
+// errTUINotImplemented is returned by the root command when jev runs with
+// no arguments, which is reserved for an interactive TUI that doesn't
+// exist yet.
+var errTUINotImplemented = errors.New("the interactive TUI (jev with no arguments) is not implemented yet; " +
+	"run a tool with `jev <command>` (see `jev --help`), or start the MCP server with `jev mcp`")
 
-	// Exit 3 on any Execute error (unknown command, bad flags): the CLI
-	// exit-code scheme reserves 3 for hard errors, 0/1/2 for verdict
-	// outcomes.
-	if err := root.Execute(); err != nil {
-		os.Exit(3)
-	}
-}
+// Help-output group IDs for the root command's subcommands.
+const (
+	groupTools  = "tools"
+	groupServer = "server"
+)
 
-// newCLIRoot builds the cobra root command and lets every registered
-// tool's RegisterCLI hook add itself as a subcommand, skipping any tool
-// whose RegisterCLI is nil (not yet migrated to CLI mode). Split out
-// from runCLI so tests can build the same root against a fake
-// registry.DepsProvider without going through buildDeps' os.Exit-prone
-// credential resolution (see main_test.go).
+// newRootCmd builds the whole command tree: the root (the TUI placeholder),
+// the `mcp` subcommand (which calls serveMCP), and one subcommand per
+// registered tool, added by that tool's RegisterCLI hook.
 //
-// NoArgs + a help-printing RunE make the root behave sanely even before
-// every tool has a CLI subcommand: `jev --help` prints help and exits 0,
-// and an unrecognized first argument produces cobra's "unknown command"
-// error instead of cobra v1.10's silent no-op for a non-runnable,
-// childless root (verified empirically against v1.10.2: without this,
-// both cases print nothing and exit 0).
-func newCLIRoot(provider registry.DepsProvider) *cobra.Command {
+// provider is LAZY: it builds the credential/config/audit plumbing (and
+// exits the process if that fails) only when a tool subcommand actually
+// runs, never while parsing flags or printing help, so `jev --help` and
+// `jev score --help` work with no credentials configured. serveMCP is a
+// parameter so tests can check the `mcp` wiring without starting a
+// server.
+func newRootCmd(provider registry.DepsProvider, serveMCP func()) *cobra.Command {
 	root := &cobra.Command{
-		Use:  "jev",
+		Use:   "jev",
+		Short: "TypeSafe's Jev judgment model, as a CLI and an MCP server",
+		Long: `jev exposes TypeSafe's Jev judgment model (via OpenRouter's SystemOne API)
+as a set of judgment tools, in three modes:
+
+  jev              Interactive TUI. NOT IMPLEMENTED YET: currently prints an
+                   error and exits 3.
+  jev <command>    Run one tool non-interactively and print its result
+                   (text by default, -o json for scripting). The exit code
+                   reflects the tool's verdict.
+  jev mcp          Serve every tool over MCP on stdio, for MCP clients such
+                   as opencode or Claude Code.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
+			// A missing feature, not a usage mistake: skip the usage dump.
+			cmd.SilenceUsage = true
+			return errTUINotImplemented
 		},
 	}
+	root.AddGroup(
+		&cobra.Group{ID: groupTools, Title: "Tool commands:"},
+		&cobra.Group{ID: groupServer, Title: "Server:"},
+	)
+
+	root.AddCommand(&cobra.Command{
+		Use:     "mcp",
+		Short:   "Run the MCP server over stdio",
+		Long:    "Serve every jev tool (jev_score, jev_verify, ...) as an MCP tool over stdio.\nPoint your MCP client's server command at `jev mcp`.",
+		GroupID: groupServer,
+		Args:    cobra.NoArgs,
+		Run:     func(cmd *cobra.Command, args []string) { serveMCP() },
+	})
+
+	toolNames := make(map[string]bool)
 	for _, t := range registry.All() {
 		if t.RegisterCLI != nil {
 			t.RegisterCLI(root, provider)
+			toolNames[t.Name] = true
+		}
+	}
+	for _, c := range root.Commands() {
+		if toolNames[c.Name()] {
+			c.GroupID = groupTools
 		}
 	}
 	return root
