@@ -1,0 +1,22 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": [
+		// Renovate's recommended defaults: grouping, ignore patterns, etc.
+		"config:recommended",
+		// Shared org defaults (branchPrefix, timezone, draftPR,
+		// minimumReleaseAge, labels, semanticCommits, vulnerability alerts,
+		// and the shared packageRules).
+		"local>pyck-ai/renovate//presets/default.json5"
+	],
+	// Two surfaces to keep current: the Go module dependencies in go.mod,
+	// and the SHA-pinned actions in .github/workflows/.
+	"enabledManagers": [
+		"gomod",
+		"github-actions"
+	],
+	// Keep go.sum tidy after every go.mod bump, so a dependency update
+	// never lands with a stale go.sum that `go build` would reject.
+	"postUpdateOptions": [
+		"gomodTidy"
+	]
+}
