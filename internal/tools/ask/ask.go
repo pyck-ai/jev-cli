@@ -348,6 +348,32 @@ func validateInput(in AskInput) error {
 	return nil
 }
 
+// jsonKindName describes v's JSON kind the way a caller thinks about their
+// own request (an "object", "array", "string", etc.), never as a Go
+// runtime type: %T on a value decoded from JSON into `any` would otherwise
+// leak internals like "map[string]interface {}" or "[]interface {}" into
+// a user-facing error message, which is meaningless to a caller who only
+// ever wrote JSON. v is always something encoding/json produced for an
+// `any`-typed field, so the switch above is exhaustive for that domain.
+func jsonKindName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case map[string]any:
+		return "an object"
+	case []any:
+		return "an array"
+	case string:
+		return "a string"
+	case bool:
+		return "a boolean"
+	case float64:
+		return "a number"
+	default:
+		return "an unrecognized value"
+	}
+}
+
 // criteriaHint shows the expected criteria shape for a question type, so a
 // validation error tells the caller how to fix the call.
 func criteriaHint(questionType string) string {
@@ -371,14 +397,14 @@ func validateQuestion(id string, q AskQuestion) error {
 	case TypeNoul, TypeChoice:
 		obj, ok := q.Criteria.(map[string]any)
 		if !ok {
-			return fmt.Errorf("questions[%q]: criteria must be a JSON object for type %q, got %T; %s", id, q.Type, q.Criteria, criteriaHint(q.Type))
+			return fmt.Errorf("questions[%q]: criteria must be an object for type %q, got %s instead; %s", id, q.Type, jsonKindName(q.Criteria), criteriaHint(q.Type))
 		}
 		if len(obj) == 0 {
 			return fmt.Errorf("questions[%q]: criteria must not be empty; %s", id, criteriaHint(q.Type))
 		}
 		for k, v := range obj {
 			if _, ok := v.(string); !ok {
-				return fmt.Errorf("questions[%q]: criteria[%q] must be a string description, got %T; %s", id, k, v, criteriaHint(q.Type))
+				return fmt.Errorf("questions[%q]: criteria[%q] must be a string description, got %s instead; %s", id, k, jsonKindName(v), criteriaHint(q.Type))
 			}
 		}
 		// SystemOne requires exactly these two keys for noul; anything
@@ -394,14 +420,14 @@ func validateQuestion(id string, q AskQuestion) error {
 	case TypeScore:
 		arr, ok := q.Criteria.([]any)
 		if !ok {
-			return fmt.Errorf("questions[%q]: criteria must be a JSON array for type \"score\", got %T; %s", id, q.Criteria, criteriaHint(q.Type))
+			return fmt.Errorf("questions[%q]: criteria must be an array for type \"score\", got %s instead; %s", id, jsonKindName(q.Criteria), criteriaHint(q.Type))
 		}
 		if len(arr) == 0 {
 			return fmt.Errorf("questions[%q]: criteria must not be empty; %s", id, criteriaHint(q.Type))
 		}
 		for i, v := range arr {
 			if _, ok := v.(string); !ok {
-				return fmt.Errorf("questions[%q]: criteria[%d] must be a level-description string, got %T; %s", id, i, v, criteriaHint(q.Type))
+				return fmt.Errorf("questions[%q]: criteria[%d] must be a level-description string, got %s instead; %s", id, i, jsonKindName(v), criteriaHint(q.Type))
 			}
 		}
 	default:

@@ -97,17 +97,17 @@ type Usage struct {
 // EvidenceItem is one item of a structured (as opposed to single-blob)
 // Evidence array.
 type EvidenceItem struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID   string `json:"id" jsonschema:"Caller-chosen identifier for this evidence item, e.g. \"doc1\". Any non-empty string; only needs to be unique enough for you to recognize it, it is not otherwise validated."`
+	Text string `json:"text" jsonschema:"The evidence text itself, e.g. \"Invoice #1: total $500.00\". Must not be empty."`
 }
 
 // VerifyInput is the jev_verify tool's input schema.
 type VerifyInput struct {
-	Claims []string `json:"claims" jsonschema:"Claims to verify against the supplied evidence. Capped at 64."`
+	Claims []string `json:"claims" jsonschema:"List of factual claims to verify against evidence, each judged independently. Required; 1 to 64 non-empty strings, e.g. [\"the invoice total is $500\"]."`
 	// Evidence is a single text blob (JSON string), or a list of
 	// {id, text} items (JSON array of objects) -- see package doc comment.
-	Evidence   any     `json:"evidence" jsonschema:"Evidence to check claims against: either a single text blob (a string), or an array of {id, text} objects."`
-	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for action to be 'auto' rather than 'review'. Default 0.8."`
+	Evidence   any     `json:"evidence" jsonschema:"Evidence to check claims against. Required; exactly one of two shapes: (1) a single string of evidence text, e.g. \"Invoice #1: total $500.00\"; or (2) an array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]. Do not pass a number, boolean, or a bare object."`
+	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence threshold for a claim's action to be 'auto' instead of 'review'. Optional; must be > 0.5 and <= 1 if set, e.g. 0.9; defaults to 0.8 when omitted or 0."`
 }
 
 // ClaimResult is one claim's verification result.
@@ -159,11 +159,13 @@ func NewVerifyHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
-		"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
-		"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
-		"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
-		"verdict."
+	description := "Batch-verify a list of claims against separately supplied evidence: each claim is " +
+		"independently judged supports/contradicts/says_nothing. Use this when you have evidence text " +
+		"to check claims against; use jev_check instead for standalone true/false propositions with no " +
+		"separate evidence. Fails closed per claim: a malformed model answer is " +
+		"status=\"invalid_response\" with action=\"review\", never a fabricated verdict. Example: " +
+		`{"claims": ["the invoice total is $500"], "evidence": "Invoice #1: total $500.00"}. ` +
+		"Output: one {verdict, confidence, action} per claim."
 	registry.Register(registry.Tool{
 		Name:        "verify",
 		MCPName:     ToolNameVerify,
@@ -308,16 +310,22 @@ func claimKey(i int) string { return "c" + strconv.Itoa(i) }
 // validateInput rejects obviously-unusable input before spending any
 // budget or making a network call, and normalizes Evidence into whatever
 // shape (string or []EvidenceItem) should be sent as SystemOne's "state".
+//
+// Every error names the offending field by its JSON path (e.g.
+// "claims[2]", "evidence[0].text"), says what's wrong, and says what's
+// expected (including the limit/range/example): agents calling this tool
+// over MCP only ever see the error text, never Go source, so the message
+// itself has to carry enough information to fix the call on the next try.
 func validateInput(in VerifyInput) (state any, err error) {
 	if len(in.Claims) == 0 {
-		return nil, fmt.Errorf("jev_verify: claims must not be empty")
+		return nil, fmt.Errorf("jev_verify: claims: must not be empty; provide 1 to %d claims as an array of strings, e.g. [\"the invoice total is $500\"]", maxClaims)
 	}
 	if len(in.Claims) > maxClaims {
-		return nil, fmt.Errorf("jev_verify: too many claims (%d, max %d)", len(in.Claims), maxClaims)
+		return nil, fmt.Errorf("jev_verify: claims: too many entries (%d), more than the maximum of %d; reduce the list to at most %d claims", len(in.Claims), maxClaims, maxClaims)
 	}
 	for i, c := range in.Claims {
 		if strings.TrimSpace(c) == "" {
-			return nil, fmt.Errorf("jev_verify: claims[%d] must not be empty", i)
+			return nil, fmt.Errorf("jev_verify: claims[%d]: must not be empty; provide a non-empty claim string, e.g. \"the invoice total is $500\"", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
@@ -333,17 +341,17 @@ func validateInput(in VerifyInput) (state any, err error) {
 // ready to use as SystemOne's "state" verbatim.
 func normalizeEvidence(raw any) (any, error) {
 	if raw == nil {
-		return nil, fmt.Errorf("evidence must be a non-empty string or a non-empty array of {id, text} objects")
+		return nil, fmt.Errorf("jev_verify: evidence: must not be omitted; provide either a string, e.g. \"Invoice #1: total $500.00\", or an array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]")
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return nil, fmt.Errorf("evidence: %w", err)
+		return nil, fmt.Errorf("jev_verify: evidence: %w", err)
 	}
 
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
 		if strings.TrimSpace(s) == "" {
-			return nil, fmt.Errorf("evidence must not be empty")
+			return nil, fmt.Errorf("jev_verify: evidence: must not be empty; provide the evidence text as a non-empty string, e.g. \"Invoice #1: total $500.00\"")
 		}
 		return s, nil
 	}
@@ -352,11 +360,40 @@ func normalizeEvidence(raw any) (any, error) {
 	if err := json.Unmarshal(b, &items); err == nil && len(items) > 0 {
 		for i, it := range items {
 			if strings.TrimSpace(it.Text) == "" {
-				return nil, fmt.Errorf("evidence[%d].text must not be empty", i)
+				return nil, fmt.Errorf("jev_verify: evidence[%d].text: must not be empty; each evidence item needs non-empty text, e.g. {\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}", i)
 			}
 		}
 		return items, nil
 	}
 
-	return nil, fmt.Errorf("evidence must be a non-empty string, or a non-empty array of {id, text} objects")
+	return nil, fmt.Errorf("jev_verify: evidence: got %s, which is not a recognized shape; provide either a non-empty string, e.g. \"Invoice #1: total $500.00\", or a non-empty array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]", humanJSONType(raw))
+}
+
+// humanJSONType describes v's JSON shape (v is always one of the types
+// encoding/json produces when unmarshaling into `any`: nil, bool,
+// float64, string, []any, or map[string]any -- see this function's call
+// site) in terms an MCP caller who only ever sees JSON understands, e.g.
+// "an object" or "an array". Deliberately never a raw Go type name like
+// "map[string]interface {}": that would mean nothing to a caller who
+// never sees Go source, only the tool's error text.
+func humanJSONType(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "a boolean"
+	case float64:
+		return "a number"
+	case string:
+		return "a string"
+	case []any:
+		return "an array"
+	case map[string]any:
+		return "an object"
+	default:
+		// Not reachable via encoding/json's decode-into-`any` output (see
+		// doc comment), but stay fail-safe rather than fall back to a raw
+		// Go %T, which would violate this function's whole point.
+		return "a value of an unrecognized shape"
+	}
 }

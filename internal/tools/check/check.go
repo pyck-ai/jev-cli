@@ -84,9 +84,9 @@ type Usage struct {
 
 // CheckInput is the jev_check tool's input schema.
 type CheckInput struct {
-	Propositions []string `json:"propositions" jsonschema:"Propositions to check, each judged independently as true or false against optional context. Capped at 64."`
-	Context      string   `json:"context,omitempty" jsonschema:"Optional shared background/context every proposition is judged against."`
-	AutoAccept   float64  `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for a 'likely'/'unlikely' label to count as 'auto' rather than 'review'. Default 0.85."`
+	Propositions []string `json:"propositions" jsonschema:"List of standalone propositions to check, each judged independently as true or false. Required; 1 to 64 non-empty strings, e.g. [\"the invoice total is $500\"]."`
+	Context      string   `json:"context,omitempty" jsonschema:"Optional shared background/context every proposition is judged against, e.g. \"Invoice #1: total $500.00\". A plain string; omit or leave empty if no shared context is needed."`
+	AutoAccept   float64  `json:"auto_accept,omitempty" jsonschema:"Confidence threshold for a proposition's label to count as 'likely'/'unlikely' (action 'auto') rather than 'uncertain' (action 'review'). Optional; must be > 0.5 and <= 1 if set, e.g. 0.9; defaults to 0.85 when omitted or 0."`
 }
 
 // PropositionResult is one proposition's judged result.
@@ -143,11 +143,13 @@ func NewCheckHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
-	description := "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
-		"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
-		"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
-		"closed per proposition: a malformed or missing answer is reported as " +
-		"status=\"invalid_response\" with action=\"review\", never a fabricated verdict."
+	description := "Batch-check a list of independent true/false propositions, each judged separately " +
+		"against optional shared context. Use this for standalone propositions with no distinct " +
+		"evidence text; use jev_verify instead when checking claims against separate evidence " +
+		"(support/contradict/says_nothing). Fails closed per proposition: a malformed answer is " +
+		"status=\"invalid_response\" with action=\"review\", never a fabricated verdict. Example: " +
+		`{"propositions": ["the invoice total is $500"]}. ` +
+		"Output: one {probability, label, action} per proposition."
 	registry.Register(registry.Tool{
 		Name:        "check",
 		MCPName:     ToolNameCheck,
@@ -284,16 +286,22 @@ func questionKey(i int) string {
 
 // validateInput rejects obviously-unusable input before spending any
 // budget or making a network call.
+//
+// Every error names the offending field by its JSON path (e.g.
+// "propositions[2]"), says what's wrong, and says what's expected
+// (including the limit/example): agents calling this tool over MCP only
+// ever see the error text, so the message has to carry enough
+// information to fix the call on the next try.
 func validateInput(in CheckInput) error {
 	if len(in.Propositions) == 0 {
-		return fmt.Errorf("jev_check: propositions must not be empty")
+		return fmt.Errorf("jev_check: propositions: must not be empty; provide 1 to %d propositions as an array of strings, e.g. [\"the invoice total is $500\"]", maxPropositions)
 	}
 	if len(in.Propositions) > maxPropositions {
-		return fmt.Errorf("jev_check: too many propositions (%d, max %d)", len(in.Propositions), maxPropositions)
+		return fmt.Errorf("jev_check: propositions: too many entries (%d), more than the maximum of %d; reduce the list to at most %d propositions", len(in.Propositions), maxPropositions, maxPropositions)
 	}
 	for i, p := range in.Propositions {
 		if strings.TrimSpace(p) == "" {
-			return fmt.Errorf("jev_check: propositions[%d] must not be empty", i)
+			return fmt.Errorf("jev_check: propositions[%d]: must not be empty; provide a non-empty proposition string, e.g. \"the invoice total is $500\"", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {

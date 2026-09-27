@@ -148,3 +148,34 @@ func TestValidateInput(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateInput_ErrorsExplainTheExpectedShape guards against the
+// regression that motivated describing every field and enriching every
+// validation error (see compare.go's jsonschema tags and validateInput).
+// See internal/tools/ask's identically-named test for the precedent
+// this follows.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   CompareInput
+		want string
+	}{
+		"empty passage_a": {CompareInput{PassageA: " ", PassageB: "b"}, "provide the first passage"},
+		"empty passage_b": {CompareInput{PassageA: "a", PassageB: " "}, "provide the second passage"},
+		"blank aspect":    {CompareInput{PassageA: "a", PassageB: "b", Aspects: []string{" "}}, "pricing"},
+		"too many aspects": {
+			CompareInput{PassageA: "a", PassageB: "b", Aspects: make([]string, maxAspects+1)},
+			"compare fewer aspects per call",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			// validateInput checks len(Aspects) before any per-aspect
+			// content, so a slice of blank strings still exercises the
+			// "too many aspects" branch, not the "blank aspect" one.
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}

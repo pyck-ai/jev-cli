@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -221,6 +222,49 @@ func TestValidateInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := validateInput(in); err == nil {
 				t.Errorf("expected error for case %q", name)
+			}
+		})
+	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape guards against the
+// regression that motivated describing every field and enriching every
+// validation error (see decide.go's jsonschema tags and validateInput):
+// an agent guessing the shape of a nested field like candidates[].id/
+// .description must get an error that shows the expected shape, not
+// just "what's wrong". See internal/tools/ask's identically-named test
+// for the precedent this follows.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   DecideInput
+		want string
+	}{
+		"too few candidates": {
+			DecideInput{Decision: "d", Evidence: "e", Priorities: "p", Candidates: []Candidate{{ID: "a", Description: "d"}}},
+			`{"id": "a", "description": "Vendor A"}`,
+		},
+		"reserved candidate id": {
+			DecideInput{Decision: "d", Evidence: "e", Priorities: "p", Candidates: []Candidate{{ID: "none", Description: "d"}, {ID: "b", Description: "d"}}},
+			"reserved for an escape hatch",
+		},
+		"duplicate candidate id": {
+			DecideInput{Decision: "d", Evidence: "e", Priorities: "p", Candidates: []Candidate{{ID: "a", Description: "d"}, {ID: "a", Description: "d"}}},
+			"already used by another candidate",
+		},
+		"empty decision": {
+			DecideInput{Evidence: "e", Priorities: "p", Candidates: []Candidate{{ID: "a", Description: "d"}, {ID: "b", Description: "d"}}},
+			"which vendor to pick",
+		},
+		"empty requirement": {
+			DecideInput{Decision: "d", Evidence: "e", Priorities: "p", Candidates: []Candidate{{ID: "a", Description: "d"}, {ID: "b", Description: "d"}}, Requirements: []string{" "}},
+			"must support SSO",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
 			}
 		})
 	}

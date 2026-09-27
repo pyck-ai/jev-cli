@@ -131,15 +131,15 @@ type Usage struct {
 // Field is one named field to extract, defined by a regular expression
 // (Go/RE2 syntax) run against Document.
 type Field struct {
-	ID          string `json:"id"`
-	Pattern     string `json:"pattern"`
-	Description string `json:"description"`
+	ID          string `json:"id" jsonschema:"Short, unique identifier for this field within this call, e.g. \"email\" or \"invoice_number\". Echoed back as this field's key in the output (fields[].id). Must be non-empty and unique among all fields in one call."`
+	Pattern     string `json:"pattern" jsonschema:"A Go/RE2 regular expression run against document to find this field's candidate values (RE2 syntax: no backreferences, no lookahead/lookbehind). Each distinct match, up to 20, becomes a candidate the model chooses among; zero matches yields status=\"not_found\" with no model call. Must be non-empty and a syntactically valid regex; an invalid pattern does not fail the whole call -- that field's status becomes \"invalid_pattern\" instead. Example: \"[0-9]{3}-[0-9]{4}\"."`
+	Description string `json:"description" jsonschema:"Plain-language description of what this field represents, shown to the judgment model so it can pick the correct match among candidates, e.g. \"the customer's phone number\". Must be non-empty."`
 }
 
 // ExtractInput is the jev_extract tool's input schema.
 type ExtractInput struct {
-	Document   string  `json:"document" jsonschema:"Document to extract fields from. Capped at 50,000 characters."`
-	Fields     []Field `json:"fields" jsonschema:"Fields to extract, each defined by a Go/RE2 regular expression run against the document. Capped at 32 fields; at most 20 regex matches are considered per field."`
+	Document   string  `json:"document" jsonschema:"The document/text to extract fields from, e.g. an email, PRD, or log excerpt. Capped at 50,000 characters; longer input is silently truncated."`
+	Fields     []Field `json:"fields" jsonschema:"1-32 fields to extract; each needs id, pattern, and description (see Field's own fields for what each means). At most 20 regex matches are considered per field."`
 	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for a field's status to be 'auto' rather than 'review'. Default 0.8."`
 }
 
@@ -197,11 +197,15 @@ func NewExtractHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
-	description := "Extract named fields from a document: for each field, a regex finds candidate " +
-		"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
-		"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
-		"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
-		"answer is reported as status=\"invalid_response\", never a fabricated value."
+	description := "Extract named fields from unstructured text: for each field, a Go/RE2 regex finds " +
+		"candidate substrings in the document, then (only if there are candidates) TypeSafe's Jev " +
+		"judgment model picks the correct one. A zero-match field costs nothing (status=\"not_found\", " +
+		"no model call); if every field has zero matches, no API call is made at all. Use this when a " +
+		"field's value can be bounded by a regex; for open-ended custom judgment questions use jev_ask " +
+		"instead. Example: {\"document\": \"Contact: a@b.com\", \"fields\": [{\"id\": \"email\", " +
+		"\"pattern\": \"[\\w.]+@[\\w.]+\", \"description\": \"the contact email\"}]}. Returns fields[] " +
+		"with id, value (or null), and status (auto/review/not_found/invalid_pattern/invalid_response); " +
+		"never fabricates a value."
 	registry.Register(registry.Tool{
 		Name:        "extract",
 		MCPName:     ToolNameExtract,
@@ -423,32 +427,32 @@ func findCandidates(re *regexp.Regexp, document string, maxMatches int, timeout 
 // regex or spending any budget.
 func validateInput(in ExtractInput) error {
 	if strings.TrimSpace(in.Document) == "" {
-		return fmt.Errorf("jev_extract: document must not be empty")
+		return fmt.Errorf("jev_extract: document must not be empty; provide the text to extract fields from (a non-empty string, up to 50,000 characters)")
 	}
 	if len(in.Fields) == 0 {
-		return fmt.Errorf("jev_extract: fields must not be empty")
+		return fmt.Errorf(`jev_extract: fields must not be empty; provide 1-32 fields, each an object with id, pattern, and description, e.g. [{"id":"email","pattern":"[0-9]{3}-[0-9]{4}","description":"the contact phone extension"}]`)
 	}
 	if len(in.Fields) > maxFields {
-		return fmt.Errorf("jev_extract: too many fields (%d, max %d)", len(in.Fields), maxFields)
+		return fmt.Errorf("jev_extract: fields has %d entries, more than the max of %d; remove some fields or split the document across multiple calls", len(in.Fields), maxFields)
 	}
 	seen := make(map[string]bool, len(in.Fields))
 	for i, f := range in.Fields {
 		if strings.TrimSpace(f.ID) == "" {
-			return fmt.Errorf("jev_extract: fields[%d].id must not be empty", i)
+			return fmt.Errorf(`jev_extract: fields[%d].id must not be empty; give this field a short unique identifier, e.g. "email"`, i)
 		}
 		if seen[f.ID] {
-			return fmt.Errorf("jev_extract: duplicate field id %q", f.ID)
+			return fmt.Errorf("jev_extract: fields[%d].id: %q is already used by another field; every fields[].id must be unique within one call", i, f.ID)
 		}
 		seen[f.ID] = true
 		if strings.TrimSpace(f.Pattern) == "" {
-			return fmt.Errorf("jev_extract: fields[%d].pattern must not be empty", i)
+			return fmt.Errorf(`jev_extract: fields[%d].pattern must not be empty; provide a Go/RE2 regular expression (no backreferences or lookaround) whose matches become this field's candidates, e.g. "[0-9]{3}-[0-9]{4}"`, i)
 		}
 		if strings.TrimSpace(f.Description) == "" {
-			return fmt.Errorf("jev_extract: fields[%d].description must not be empty", i)
+			return fmt.Errorf(`jev_extract: fields[%d].description must not be empty; describe in plain language what this field represents so the model can pick the right match, e.g. "the customer's phone number"`, i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf("jev_extract: %w", err)
+		return fmt.Errorf(`jev_extract: %w (0 means "use the default 0.8")`, err)
 	}
 	return nil
 }

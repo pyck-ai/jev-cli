@@ -131,22 +131,22 @@ type Usage struct {
 
 // Candidate is one candidate option for the decision.
 type Candidate struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
+	ID          string `json:"id" jsonschema:"Caller-chosen identifier for this candidate, e.g. \"a\". Required, must be a non-empty string, must be unique among all candidates in this call, and must not be one of the reserved escape-hatch ids (\"ask_user\", \"investigate\", \"none\"); this is the value returned as recommendation.selected."`
+	Description string `json:"description" jsonschema:"This candidate option, described in enough detail to evaluate it, e.g. \"Vendor A\". Required, must be a non-empty string."`
 }
 
 // DecideInput is the jev_decide tool's input schema.
 type DecideInput struct {
-	Decision     string      `json:"decision" jsonschema:"The decision to be made."`
-	Evidence     string      `json:"evidence" jsonschema:"Evidence relevant to the decision."`
-	Priorities   string      `json:"priorities" jsonschema:"Priorities/tradeoffs that should guide the decision."`
-	Candidates   []Candidate `json:"candidates" jsonschema:"Candidate options, 2-6 of them."`
-	Requirements []string    `json:"requirements,omitempty" jsonschema:"Optional requirements to check every candidate against. Capped at 20."`
+	Decision     string      `json:"decision" jsonschema:"The decision to be made, e.g. \"which vendor to pick\". Required, must be a non-empty string."`
+	Evidence     string      `json:"evidence" jsonschema:"Evidence relevant to the decision, e.g. \"vendor A is cheaper, vendor B is faster\". Required, must be a non-empty string."`
+	Priorities   string      `json:"priorities" jsonschema:"Priorities/tradeoffs that should guide the decision, e.g. \"cost matters most\". Required, must be a non-empty string."`
+	Candidates   []Candidate `json:"candidates" jsonschema:"Candidate options, e.g. [{\"id\": \"a\", \"description\": \"Vendor A\"}, {\"id\": \"b\", \"description\": \"Vendor B\"}]. Required, an array of 2-6 {id, description} objects."`
+	Requirements []string    `json:"requirements,omitempty" jsonschema:"Optional requirements to check every candidate against, e.g. [\"must support SSO\"]. An array of plain strings (not objects), up to 20 entries."`
 	// EscapeHatches is a *bool (not bool) specifically so this handler can
 	// tell "omitted" (nil -> defaults to true) apart from "explicitly
 	// false": a plain bool field cannot distinguish those two cases after
 	// JSON unmarshaling, since both leave the Go field at its zero value.
-	EscapeHatches *bool `json:"escape_hatches,omitempty" jsonschema:"Whether to offer ask_user/investigate/none escape hatches alongside the real candidates in the main recommendation. Default true."`
+	EscapeHatches *bool `json:"escape_hatches,omitempty" jsonschema:"Whether to offer ask_user/investigate/none as additional pickable options, so the model can decline to choose any real candidate. Optional boolean, default true if omitted."`
 }
 
 // Recommendation is jev_decide's main recommendation.
@@ -208,11 +208,17 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
-		"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
-		"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
-		"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
-		"answer=\"invalid_response\" (a requirement check), never fabricated."
+	description := "Recommend which of 2-6 candidate options best satisfies a decision, given evidence " +
+		"and priorities, with optional escape hatches (ask_user/investigate/none) and optional " +
+		"per-requirement checks, using TypeSafe's Jev judgment model. Use this to pick ONE best " +
+		"option for a specific decision -- use jev_classify instead for bulk categorization of many " +
+		"items into fixed classes. Fails closed: a malformed or missing answer is " +
+		"status=\"invalid_response\" (recommendation) or answer=\"invalid_response\" (a requirement " +
+		"check), never fabricated. Example: " +
+		`{"decision": "which vendor to pick", "evidence": "A is cheaper, B is faster", ` +
+		`"priorities": "cost matters most", "candidates": [{"id": "a", "description": "Vendor A"}, ` +
+		`{"id": "b", "description": "Vendor B"}]}. ` +
+		"Output: recommendation{selected, escaped, confidence} plus optional checks."
 	registry.Register(registry.Tool{
 		Name:        "decide",
 		MCPName:     ToolNameDecide,
@@ -395,39 +401,39 @@ func checkKey(requirementIndex int, candidateID string) string {
 // budget or making a network call.
 func validateInput(in DecideInput) error {
 	if strings.TrimSpace(in.Decision) == "" {
-		return fmt.Errorf("jev_decide: decision must not be empty")
+		return fmt.Errorf("jev_decide: decision must not be empty; describe the decision to be made, e.g. \"which vendor to pick\"")
 	}
 	if strings.TrimSpace(in.Evidence) == "" {
-		return fmt.Errorf("jev_decide: evidence must not be empty")
+		return fmt.Errorf("jev_decide: evidence must not be empty; provide the evidence relevant to the decision")
 	}
 	if strings.TrimSpace(in.Priorities) == "" {
-		return fmt.Errorf("jev_decide: priorities must not be empty")
+		return fmt.Errorf("jev_decide: priorities must not be empty; describe the priorities/tradeoffs that should guide the decision")
 	}
 	if len(in.Candidates) < minCandidates || len(in.Candidates) > maxCandidates {
-		return fmt.Errorf("jev_decide: candidates must number %d-%d, got %d", minCandidates, maxCandidates, len(in.Candidates))
+		return fmt.Errorf("jev_decide: candidates has %d entries; provide between %d and %d {\"id\": <string>, \"description\": <string>} objects, e.g. [{\"id\": \"a\", \"description\": \"Vendor A\"}, {\"id\": \"b\", \"description\": \"Vendor B\"}]", len(in.Candidates), minCandidates, maxCandidates)
 	}
 	seen := make(map[string]bool, len(in.Candidates))
 	for i, c := range in.Candidates {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_decide: candidates[%d].id must not be empty", i)
+			return fmt.Errorf("jev_decide: candidates[%d].id must not be empty; each candidate needs a unique non-empty string id, e.g. \"a\"", i)
 		}
 		if escapeHatchIDs[c.ID] {
-			return fmt.Errorf("jev_decide: candidates[%d].id %q is reserved for an escape hatch", i, c.ID)
+			return fmt.Errorf("jev_decide: candidates[%d].id: %q is reserved for an escape hatch (ask_user, investigate, none) and cannot be used as a candidate id; choose a different id", i, c.ID)
 		}
 		if seen[c.ID] {
-			return fmt.Errorf("jev_decide: duplicate candidate id %q", c.ID)
+			return fmt.Errorf("jev_decide: candidates[%d].id: %q is already used by another candidate; every candidate needs a unique id", i, c.ID)
 		}
 		seen[c.ID] = true
 		if strings.TrimSpace(c.Description) == "" {
-			return fmt.Errorf("jev_decide: candidates[%d].description must not be empty", i)
+			return fmt.Errorf("jev_decide: candidates[%d].description must not be empty; describe this candidate option, e.g. \"Vendor A\"", i)
 		}
 	}
 	if len(in.Requirements) > maxRequirements {
-		return fmt.Errorf("jev_decide: too many requirements (%d, max %d)", len(in.Requirements), maxRequirements)
+		return fmt.Errorf("jev_decide: requirements has %d entries, exceeding the max of %d; check fewer requirements per call", len(in.Requirements), maxRequirements)
 	}
 	for i, r := range in.Requirements {
 		if strings.TrimSpace(r) == "" {
-			return fmt.Errorf("jev_decide: requirements[%d] must not be empty", i)
+			return fmt.Errorf("jev_decide: requirements[%d] must not be empty; each requirement is a plain string checked against every candidate, e.g. \"must support SSO\"", i)
 		}
 	}
 	return nil

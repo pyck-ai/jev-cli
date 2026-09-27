@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -147,6 +148,51 @@ func TestValidateInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := validateInput(in); err == nil {
 				t.Errorf("expected error for case %q", name)
+			}
+		})
+	}
+}
+
+// TestValidateInput_ErrorsExplainWhatIsExpected: agents calling
+// jev_review over MCP only see the error text, so each validation error
+// must say what's wrong AND what's expected (field path, range, or
+// default) -- not just what's wrong.
+func TestValidateInput_ErrorsExplainWhatIsExpected(t *testing.T) {
+	cases := map[string]struct {
+		in   ReviewInput
+		want []string
+	}{
+		"empty request": {
+			ReviewInput{Request: " ", Diff: "d"},
+			[]string{"request", "50,000 characters"},
+		},
+		"empty diff": {
+			ReviewInput{Request: "r", Diff: " "},
+			[]string{"diff", "50,000 characters"},
+		},
+		"bad auto_accept": {
+			ReviewInput{Request: "r", Diff: "d", AutoAccept: 0.5},
+			[]string{"auto_accept", "default 0.8"},
+		},
+		"bad composite_floor": {
+			ReviewInput{Request: "r", Diff: "d", CompositeFloor: 1.5},
+			[]string{"composite_floor", "[0,1]", "default 0.7"},
+		},
+		"negative weight": {
+			ReviewInput{Request: "r", Diff: "d", Weights: reviewcore.Weights{Correctness: -1}},
+			[]string{"weights.correctness", "normalized to sum to 1"},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil {
+				t.Fatalf("expected an error for case %q", name)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want it to contain %q", err, want)
+				}
 			}
 		})
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,6 +273,76 @@ func TestValidateInput_TooManyFields(t *testing.T) {
 	}
 	if err := validateInput(ExtractInput{Document: "d", Fields: fields}); err == nil {
 		t.Error("expected error for too many fields")
+	}
+}
+
+// TestValidateInput_ErrorsExplainWhatIsExpected: agents calling
+// jev_extract over MCP only see the error text, so each validation error
+// must say what's wrong AND what's expected (field path, shape, example,
+// or limit) -- not just what's wrong.
+func TestValidateInput_ErrorsExplainWhatIsExpected(t *testing.T) {
+	cases := map[string]struct {
+		in   ExtractInput
+		want []string
+	}{
+		"empty document": {
+			ExtractInput{Document: " ", Fields: []Field{{ID: "f", Pattern: "x", Description: "d"}}},
+			[]string{"document", "50,000 characters"},
+		},
+		"empty fields": {
+			ExtractInput{Document: "d", Fields: nil},
+			[]string{"fields", "1-32 fields", "id", "pattern", "description"},
+		},
+		"empty field id": {
+			ExtractInput{Document: "d", Fields: []Field{{ID: "", Pattern: "x", Description: "d"}}},
+			[]string{"fields[0].id", "unique identifier"},
+		},
+		"duplicate field id": {
+			ExtractInput{Document: "d", Fields: []Field{{ID: "f", Pattern: "x", Description: "d"}, {ID: "f", Pattern: "y", Description: "d"}}},
+			[]string{`"f"`, "unique within one call"},
+		},
+		"empty pattern": {
+			ExtractInput{Document: "d", Fields: []Field{{ID: "f", Pattern: "", Description: "d"}}},
+			[]string{"fields[0].pattern", "RE2", "backreferences"},
+		},
+		"empty description": {
+			ExtractInput{Document: "d", Fields: []Field{{ID: "f", Pattern: "x", Description: ""}}},
+			[]string{"fields[0].description", "plain language"},
+		},
+		"bad auto_accept": {
+			ExtractInput{Document: "d", Fields: []Field{{ID: "f", Pattern: "x", Description: "d"}}, AutoAccept: 0.5},
+			[]string{"auto_accept", "default 0.8"},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil {
+				t.Fatalf("expected an error for case %q", name)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want it to contain %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateInput_TooManyFieldsErrorNamesTheLimit covers the
+// too-many-fields message specifically, since its want-strings involve a
+// computed count not easily shared with the table above.
+func TestValidateInput_TooManyFieldsErrorNamesTheLimit(t *testing.T) {
+	fields := make([]Field, maxFields+1)
+	for i := range fields {
+		fields[i] = Field{ID: string(rune('a')) + string(rune(i)), Pattern: "x", Description: "d"}
+	}
+	err := validateInput(ExtractInput{Document: "d", Fields: fields})
+	if err == nil {
+		t.Fatal("expected error for too many fields")
+	}
+	if !strings.Contains(err.Error(), "fields") || !strings.Contains(err.Error(), "max of 32") {
+		t.Errorf("error = %v, want it to name the field and the max", err)
 	}
 }
 

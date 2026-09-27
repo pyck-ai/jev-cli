@@ -3,6 +3,7 @@ package check
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -159,4 +160,40 @@ func TestCheckHandler_Handle_SessionBudgetRefusesBeforeCalling(t *testing.T) {
 	if !strings.Contains(err.Error(), "budget") {
 		t.Errorf("expected budget-related error, got %v", err)
 	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
+// jev_check over MCP only see the error text, so each validation error
+// must say what the right shape/value is, not just what was wrong.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   CheckInput
+		want string
+	}{
+		"empty propositions": {
+			CheckInput{Propositions: nil},
+			fmt.Sprintf("provide 1 to %d propositions", maxPropositions),
+		},
+		"too many propositions": {
+			CheckInput{Propositions: tooManyPropositions()},
+			fmt.Sprintf("more than the maximum of %d", maxPropositions),
+		},
+		"blank proposition": {CheckInput{Propositions: []string{"  "}}, "propositions[0]: must not be empty"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}
+
+func tooManyPropositions() []string {
+	props := make([]string, maxPropositions+1)
+	for i := range props {
+		props[i] = "x"
+	}
+	return props
 }

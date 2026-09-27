@@ -71,7 +71,7 @@ type Usage struct {
 // DoctorInput is the jev_doctor tool's input schema. Every field is
 // optional -- an empty DoctorInput{} is a complete, valid call.
 type DoctorInput struct {
-	ProbeModel string `json:"probe_model,omitempty" jsonschema:"Optional model slug to probe instead of the configured default_model/tool_model_overrides."`
+	ProbeModel string `json:"probe_model,omitempty" jsonschema:"Optional model slug to probe instead of the configured default_model/tool_model_overrides, e.g. \"anthropic/claude-3.7-sonnet\". Omit to probe the currently configured model."`
 }
 
 // ConfigSnapshot reports whatever configuration is currently active, so
@@ -124,10 +124,12 @@ func NewDoctorHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 
 func init() {
 	description := "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
-		"and report the currently active configuration (resolved model, credential source, budget " +
-		"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
-		"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
-		"since that IS this tool's useful result."
+		"and report the active configuration (resolved model, credential source, budget caps, session " +
+		"spend). Run this first when another tool call fails, to rule out a connectivity/config " +
+		"problem before assuming the tool itself is broken. Never fails as a Go error: an unreachable " +
+		"endpoint is reported as reachable=false with a human-readable error, since that IS the " +
+		"useful result. Example (every field optional): {} or {\"probe_model\": \"some/other-model\"}. " +
+		"Returns model, reachable (bool), latency_ms, error (or null), and the config snapshot."
 	registry.Register(registry.Tool{
 		Name:        "doctor",
 		MCPName:     ToolNameDoctor,

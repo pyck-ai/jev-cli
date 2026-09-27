@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -142,6 +143,31 @@ func TestValidateInput(t *testing.T) {
 	}
 	if err := validateInput(ScreenInput{Text: "x", BlockAt: 0.2, ReviewAt: 0.5}); err == nil {
 		t.Error("expected error when review_at >= block_at")
+	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
+// jev_screen over MCP only see the error text, so each validation error
+// must say what the right shape/value is, not just what was wrong.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   ScreenInput
+		want string
+	}{
+		"empty text":            {ScreenInput{Text: "  "}, "text: must not be empty"},
+		"block_at out of range": {ScreenInput{Text: "x", BlockAt: 1.5}, "must be in [0, 1] if set"},
+		"review_at >= block_at": {
+			ScreenInput{Text: "x", BlockAt: 0.2, ReviewAt: 0.5},
+			"review_at: must be less than block_at",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
 	}
 }
 

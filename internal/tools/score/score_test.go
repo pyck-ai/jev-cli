@@ -346,3 +346,38 @@ func TestScoreHandler_Handle_SessionBudgetRefusesBeforeCalling(t *testing.T) {
 		t.Errorf(`audit status = %q, want "error"`, entry.Status)
 	}
 }
+
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
+// jev_score over MCP only see the error text, so each validation error
+// must say what the right shape/value is, not just what was wrong.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   ScoreInput
+		want string
+	}{
+		"empty state": {
+			ScoreInput{State: "  ", Instructions: "y", ScaleMin: 0, ScaleMax: 2},
+			"state: must not be empty",
+		},
+		"empty instructions": {
+			ScoreInput{State: "x", Instructions: "", ScaleMin: 0, ScaleMax: 2},
+			"describe what each scale level means",
+		},
+		"scale_max <= scale_min": {
+			ScoreInput{State: "x", Instructions: "y", ScaleMin: 5, ScaleMax: 2},
+			"scale_max: must be greater than scale_min",
+		},
+		"scale range too large": {
+			ScoreInput{State: "x", Instructions: "y", ScaleMin: 0, ScaleMax: 100000},
+			"range too large",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}

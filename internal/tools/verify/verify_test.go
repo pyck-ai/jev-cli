@@ -3,9 +3,11 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -173,4 +175,57 @@ func TestValidateInput_TooManyClaims(t *testing.T) {
 	if _, err := validateInput(VerifyInput{Claims: claims, Evidence: "y"}); err == nil {
 		t.Error("expected error for too many claims")
 	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
+// jev_verify over MCP only see the error text, so each validation error
+// must say what the right shape/value is, not just what was wrong.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   VerifyInput
+		want string
+	}{
+		"empty claims": {
+			VerifyInput{Claims: nil, Evidence: "y"},
+			fmt.Sprintf("provide 1 to %d claims", maxClaims),
+		},
+		"too many claims": {
+			VerifyInput{Claims: tooManyClaims(), Evidence: "y"},
+			fmt.Sprintf("more than the maximum of %d", maxClaims),
+		},
+		"blank claim":  {VerifyInput{Claims: []string{"  "}, Evidence: "y"}, "claims[0]: must not be empty"},
+		"nil evidence": {VerifyInput{Claims: []string{"x"}, Evidence: nil}, "an array of {id, text} objects"},
+		"evidence is an empty array": {
+			VerifyInput{Claims: []string{"x"}, Evidence: []any{}},
+			"evidence: got an array, which is not a recognized shape",
+		},
+		"evidence is an object": {
+			VerifyInput{Claims: []string{"x"}, Evidence: map[string]any{"foo": "bar"}},
+			"evidence: got an object",
+		},
+		"evidence is a number": {
+			VerifyInput{Claims: []string{"x"}, Evidence: 42.0},
+			"evidence: got a number",
+		},
+		"evidence item text blank": {
+			VerifyInput{Claims: []string{"x"}, Evidence: []any{map[string]any{"id": "doc1", "text": "  "}}},
+			"evidence[0].text: must not be empty",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}
+
+func tooManyClaims() []string {
+	claims := make([]string, maxClaims+1)
+	for i := range claims {
+		claims[i] = "x"
+	}
+	return claims
 }

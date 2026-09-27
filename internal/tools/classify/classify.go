@@ -82,23 +82,23 @@ type Usage struct {
 
 // Item is one item to classify.
 type Item struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID   string `json:"id" jsonschema:"Caller-chosen identifier for this item, e.g. \"i1\". Required, must be a non-empty string, and must be unique among all items in this call; echoed back in the output to identify this item's result."`
+	Text string `json:"text" jsonschema:"This item's text content to classify, e.g. \"it crashes on startup\". Required, must be a non-empty string."`
 }
 
 // Class is one candidate classification.
 type Class struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
+	ID          string `json:"id" jsonschema:"Caller-chosen identifier for this class, e.g. \"bug\". Required, must be a non-empty string, and must be unique among all classes in this call; this is the value returned as an item's classification."`
+	Description string `json:"description" jsonschema:"What this class means, so the model can tell it apart from the other classes, e.g. \"a defect report\". Required, must be a non-empty string."`
 }
 
 // ClassifyInput is the jev_classify tool's input schema.
 type ClassifyInput struct {
-	Purpose       string  `json:"purpose,omitempty" jsonschema:"Optional shared context for why these items are being classified."`
-	Items         []Item  `json:"items" jsonschema:"Items to classify. Capped at 64."`
-	Classes       []Class `json:"classes" jsonschema:"Candidate classes every item is classified against. Capped at 250; len(items)*len(classes) is capped at 8000."`
-	AutoAccept    float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision to be 'auto'. Default 0.85."`
-	MinimumMargin float64 `json:"minimum_margin,omitempty" jsonschema:"Minimum gap in [0,1] between the top and runner-up class probability for decision to be 'auto'. Default 0.5."`
+	Purpose       string  `json:"purpose,omitempty" jsonschema:"Optional shared context for why these items are being classified, e.g. \"triaging incoming support tickets\"."`
+	Items         []Item  `json:"items" jsonschema:"Items to classify, e.g. [{\"id\": \"i1\", \"text\": \"...\"}]. Required, an array of 1-64 {id, text} objects."`
+	Classes       []Class `json:"classes" jsonschema:"The fixed set of classes every item is classified into, e.g. [{\"id\": \"bug\", \"description\": \"a defect report\"}, {\"id\": \"feature\", \"description\": \"a feature request\"}]. Required, an array of 1-250 {id, description} objects; len(items)*len(classes) must not exceed 8000."`
+	AutoAccept    float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision to be 'auto' rather than 'review'. Optional, default 0.85 if omitted."`
+	MinimumMargin float64 `json:"minimum_margin,omitempty" jsonschema:"Minimum gap in [0,1] between the top and runner-up class probability for decision to be 'auto'. Optional, default 0.5 if omitted."`
 }
 
 // ItemResult is one item's classification result.
@@ -152,9 +152,15 @@ func NewClassifyHandler(client *openrouter.Client, cfg config.Config, tracker *b
 
 func init() {
 	description := "Classify each of a list of items into exactly one of a fixed set of classes, using " +
-		"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
-		"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
-		"classification."
+		"TypeSafe's Jev judgment model. Use this for bulk categorization: many items, each " +
+		"independently assigned one class -- use jev_decide instead when picking the single best of " +
+		"2-6 options for one specific decision, not categorizing a batch of items. Fails closed per " +
+		"item: a malformed or missing answer is reported as status=\"invalid_response\" with " +
+		"decision=\"review\", never a fabricated classification. Example: " +
+		`{"items": [{"id": "i1", "text": "it crashes on startup"}], ` +
+		`"classes": [{"id": "bug", "description": "a defect report"}, ` +
+		`{"id": "feature", "description": "a feature request"}]}. ` +
+		"Output: one {classification, confidence, decision} result per item."
 	registry.Register(registry.Tool{
 		Name:        "classify",
 		MCPName:     ToolNameClassify,
@@ -323,51 +329,51 @@ func margin(probs map[string]float64) float64 {
 // budget or making a network call.
 func validateInput(in ClassifyInput) error {
 	if len(in.Items) == 0 {
-		return fmt.Errorf("jev_classify: items must not be empty")
+		return fmt.Errorf("jev_classify: items must not be empty; provide an array of 1-64 {\"id\": <string>, \"text\": <string>} objects, e.g. [{\"id\": \"i1\", \"text\": \"...\"}]")
 	}
 	if len(in.Items) > maxItems {
-		return fmt.Errorf("jev_classify: too many items (%d, max %d)", len(in.Items), maxItems)
+		return fmt.Errorf("jev_classify: items has %d entries, exceeding the max of %d; classify fewer items per call", len(in.Items), maxItems)
 	}
 	if len(in.Classes) == 0 {
-		return fmt.Errorf("jev_classify: classes must not be empty")
+		return fmt.Errorf("jev_classify: classes must not be empty; provide an array of 1-250 {\"id\": <string>, \"description\": <string>} objects defining the possible classes, e.g. [{\"id\": \"bug\", \"description\": \"a defect report\"}]")
 	}
 	if len(in.Classes) > maxClasses {
-		return fmt.Errorf("jev_classify: too many classes (%d, max %d)", len(in.Classes), maxClasses)
+		return fmt.Errorf("jev_classify: classes has %d entries, exceeding the max of %d; use fewer classes", len(in.Classes), maxClasses)
 	}
 	if itemClassBudget := len(in.Items) * len(in.Classes); itemClassBudget > maxItemClassBudget {
-		return fmt.Errorf("jev_classify: items*classes too large (%d, max %d)", itemClassBudget, maxItemClassBudget)
+		return fmt.Errorf("jev_classify: items (%d) x classes (%d) = %d combinations, exceeding the max of %d; classify fewer items per call or use fewer classes", len(in.Items), len(in.Classes), itemClassBudget, maxItemClassBudget)
 	}
 	seenItems := make(map[string]bool, len(in.Items))
 	for i, item := range in.Items {
 		if strings.TrimSpace(item.ID) == "" {
-			return fmt.Errorf("jev_classify: items[%d].id must not be empty", i)
+			return fmt.Errorf("jev_classify: items[%d].id must not be empty; each item needs a unique non-empty string id, e.g. \"i1\"", i)
 		}
 		if seenItems[item.ID] {
-			return fmt.Errorf("jev_classify: duplicate item id %q", item.ID)
+			return fmt.Errorf("jev_classify: items[%d].id: %q is already used by another item; every item needs a unique id", i, item.ID)
 		}
 		seenItems[item.ID] = true
 		if strings.TrimSpace(item.Text) == "" {
-			return fmt.Errorf("jev_classify: items[%d].text must not be empty", i)
+			return fmt.Errorf("jev_classify: items[%d].text must not be empty; provide this item's text content to classify", i)
 		}
 	}
 	seenClasses := make(map[string]bool, len(in.Classes))
 	for i, c := range in.Classes {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_classify: classes[%d].id must not be empty", i)
+			return fmt.Errorf("jev_classify: classes[%d].id must not be empty; each class needs a unique non-empty string id, e.g. \"bug\"", i)
 		}
 		if seenClasses[c.ID] {
-			return fmt.Errorf("jev_classify: duplicate class id %q", c.ID)
+			return fmt.Errorf("jev_classify: classes[%d].id: %q is already used by another class; every class needs a unique id", i, c.ID)
 		}
 		seenClasses[c.ID] = true
 		if strings.TrimSpace(c.Description) == "" {
-			return fmt.Errorf("jev_classify: classes[%d].description must not be empty", i)
+			return fmt.Errorf("jev_classify: classes[%d].description must not be empty; describe what this class means so the model can tell it apart from the others", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
 		return fmt.Errorf("jev_classify: %w", err)
 	}
 	if in.MinimumMargin != 0 && (in.MinimumMargin < 0 || in.MinimumMargin > 1) {
-		return fmt.Errorf("jev_classify: minimum_margin must be in [0,1] if set, got %v", in.MinimumMargin)
+		return fmt.Errorf("jev_classify: minimum_margin must be in [0,1] if set, got %v; omit it to use the default of 0.5", in.MinimumMargin)
 	}
 	return nil
 }

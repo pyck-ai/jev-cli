@@ -3,6 +3,7 @@ package match
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -189,5 +190,44 @@ func TestPerCandidateTextIsTruncated(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
+// jev_match over MCP only see the error text, so each validation error
+// must say what the right shape/value is, not just what was wrong.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   MatchInput
+		want string
+	}{
+		"empty query": {
+			MatchInput{Query: "  ", Candidates: []Candidate{{ID: "a", Text: "x"}}},
+			"query: must not be empty",
+		},
+		"no candidates": {
+			MatchInput{Query: "q", Candidates: nil},
+			fmt.Sprintf("provide 1 to %d candidates", maxCandidates),
+		},
+		"empty candidate id": {
+			MatchInput{Query: "q", Candidates: []Candidate{{ID: "", Text: "x"}}},
+			"candidates[0].id: must not be empty",
+		},
+		"duplicate id": {
+			MatchInput{Query: "q", Candidates: []Candidate{{ID: "a", Text: "x"}, {ID: "a", Text: "y"}}},
+			`candidates[1].id: "a" is a duplicate`,
+		},
+		"empty candidate text": {
+			MatchInput{Query: "q", Candidates: []Candidate{{ID: "a", Text: " "}}},
+			"candidates[0].text: must not be empty",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
 	}
 }

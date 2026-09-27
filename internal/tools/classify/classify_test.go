@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -129,6 +130,43 @@ func TestValidateInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := validateInput(in); err == nil {
 				t.Errorf("expected error for case %q", name)
+			}
+		})
+	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape guards against the
+// regression that motivated describing every field and enriching every
+// validation error (see classify.go's jsonschema tags and
+// validateInput): an agent guessing the shape of a nested field like
+// items[].id or classes[].description must get an error that shows the
+// expected shape, not just "what's wrong". See internal/tools/ask's
+// identically-named test for the precedent this follows.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   ClassifyInput
+		want string
+	}{
+		"no items":   {ClassifyInput{Items: nil, Classes: testClasses()}, `{"id": "i1", "text": "..."}`},
+		"no classes": {ClassifyInput{Items: []Item{{ID: "i1", Text: "x"}}, Classes: nil}, `{"id": "bug", "description": "a defect report"}`},
+		"empty item id": {
+			ClassifyInput{Items: []Item{{ID: "", Text: "x"}}, Classes: testClasses()},
+			"unique non-empty string id",
+		},
+		"empty class description": {
+			ClassifyInput{Items: []Item{{ID: "i1", Text: "x"}}, Classes: []Class{{ID: "a", Description: ""}}},
+			"tell it apart from the others",
+		},
+		"duplicate item id": {
+			ClassifyInput{Items: []Item{{ID: "i1", Text: "x"}, {ID: "i1", Text: "y"}}, Classes: testClasses()},
+			"already used by another item",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
 			}
 		})
 	}

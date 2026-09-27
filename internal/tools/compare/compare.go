@@ -104,10 +104,10 @@ type Usage struct {
 
 // CompareInput is the jev_compare tool's input schema.
 type CompareInput struct {
-	PassageA   string   `json:"passage_a" jsonschema:"First passage to compare. Capped at 20,000 characters."`
-	PassageB   string   `json:"passage_b" jsonschema:"Second passage to compare. Capped at 20,000 characters."`
-	Aspects    []string `json:"aspects,omitempty" jsonschema:"Optional specific aspects to additionally compare the passages on, each judged independently. Capped at 32."`
-	AutoAccept float64  `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision to be 'auto'. Default 0.8."`
+	PassageA   string   `json:"passage_a" jsonschema:"First passage to compare, e.g. \"the sky is blue\". Required, must be a non-empty string; if longer than 20,000 characters it is truncated (not rejected)."`
+	PassageB   string   `json:"passage_b" jsonschema:"Second passage to compare, e.g. \"the sky is red\". Required, must be a non-empty string; if longer than 20,000 characters it is truncated (not rejected)."`
+	Aspects    []string `json:"aspects,omitempty" jsonschema:"Optional specific aspects to additionally compare the passages on, each judged independently, e.g. [\"color\", \"time of day\"]. An array of plain strings (not objects), up to 32 entries."`
+	AutoAccept float64  `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision to be 'auto' rather than 'review'. Optional, default 0.8 if omitted."`
 }
 
 // OverallResult is the passages' overall relation.
@@ -172,10 +172,14 @@ func NewCompareHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
-	description := "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
-		"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
-		"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
-		"decision=\"review\", never a fabricated relation."
+	description := "Compare two whole passages' factual relation (same_fact/contradicts/" +
+		"different_facts), overall and optionally per specific aspect, using TypeSafe's Jev judgment " +
+		"model. Use this to compare two SYMMETRIC passages/documents against each other -- use " +
+		"jev_verify instead to check specific claims against evidence (asymmetric: claim vs " +
+		"evidence), not two full passages. Fails closed: a malformed or missing answer is reported " +
+		"as status=\"invalid_response\" with decision=\"review\", never a fabricated relation. " +
+		`Example: {"passage_a": "the sky is blue", "passage_b": "the sky is red", "aspects": ["color"]}. ` +
+		"Output: overall{relation, decision} plus one {aspect, relation, decision} per aspect."
 	registry.Register(registry.Tool{
 		Name:        "compare",
 		MCPName:     ToolNameCompare,
@@ -343,17 +347,17 @@ func parseRelation(answersMap map[string]json.RawMessage, key string) (relation 
 // budget or making a network call.
 func validateInput(in CompareInput) error {
 	if strings.TrimSpace(in.PassageA) == "" {
-		return fmt.Errorf("jev_compare: passage_a must not be empty")
+		return fmt.Errorf("jev_compare: passage_a must not be empty; provide the first passage to compare")
 	}
 	if strings.TrimSpace(in.PassageB) == "" {
-		return fmt.Errorf("jev_compare: passage_b must not be empty")
+		return fmt.Errorf("jev_compare: passage_b must not be empty; provide the second passage to compare")
 	}
 	if len(in.Aspects) > maxAspects {
-		return fmt.Errorf("jev_compare: too many aspects (%d, max %d)", len(in.Aspects), maxAspects)
+		return fmt.Errorf("jev_compare: aspects has %d entries, exceeding the max of %d; compare fewer aspects per call", len(in.Aspects), maxAspects)
 	}
 	for i, a := range in.Aspects {
 		if strings.TrimSpace(a) == "" {
-			return fmt.Errorf("jev_compare: aspects[%d] must not be empty", i)
+			return fmt.Errorf("jev_compare: aspects[%d] must not be empty; each aspect is a plain string naming a specific angle to compare on, e.g. \"pricing\"", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {

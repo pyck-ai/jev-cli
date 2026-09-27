@@ -210,6 +210,46 @@ func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
 	}
 }
 
+// TestValidateInput_ErrorsDoNotLeakGoTypeNames: a caller only ever wrote
+// JSON, so a wrong-shape criteria error must describe what was actually
+// found in JSON terms (an object/array/string/number/boolean), never a Go
+// runtime type string like "[]interface {}" or "map[string]interface {}"
+// -- those are meaningless to a caller who has no idea this server is
+// written in Go.
+func TestValidateInput_ErrorsDoNotLeakGoTypeNames(t *testing.T) {
+	cases := map[string]struct {
+		q        AskQuestion
+		wantKind string
+	}{
+		"noul criteria is a string, not an object": {
+			AskQuestion{Type: "noul", Instructions: "i", Criteria: "not an object"}, "a string",
+		},
+		"score criteria is an object, not an array": {
+			AskQuestion{Type: "score", Instructions: "i", Criteria: map[string]any{"0": "low"}}, "an object",
+		},
+		"score criteria element is a number, not a string": {
+			AskQuestion{Type: "score", Instructions: "i", Criteria: []any{"low", 42.0}}, "a number",
+		},
+		"noul criteria value is a boolean, not a string": {
+			AskQuestion{Type: "noul", Instructions: "i", Criteria: map[string]any{"true": true, "false": "f"}}, "a boolean",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(AskInput{State: "s", Questions: map[string]AskQuestion{"q": c.q}})
+			if err == nil {
+				t.Fatalf("expected an error for case %q", name)
+			}
+			if !strings.Contains(err.Error(), c.wantKind) {
+				t.Errorf("error = %v, want it to contain %q", err, c.wantKind)
+			}
+			if strings.Contains(err.Error(), "interface") {
+				t.Errorf("error leaks a Go runtime type name (contains %q): %v", "interface", err)
+			}
+		})
+	}
+}
+
 func TestValidateInput_TooManyQuestions(t *testing.T) {
 	qs := make(map[string]AskQuestion, maxQuestions+1)
 	for i := 0; i < maxQuestions+1; i++ {

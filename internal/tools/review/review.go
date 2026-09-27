@@ -99,10 +99,12 @@ func NewReviewHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 
 func init() {
 	description := "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
-		"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
-		"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
-		"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
-		"fabricated pass."
+		"test_gap, blast_radius) plus a safe-to-apply signal, and recommend action=\"auto\"/\"review\"/" +
+		"\"escalate\". Use jev_review for a general diff review; use jev_gate instead when you also " +
+		"have specific factual claims to verify against evidence. Fails closed: a malformed or " +
+		"missing rubric answer forces escalate, never a fabricated pass. Example: {\"request\": \"add " +
+		"caching\", \"diff\": \"+func Cache() {}\"}. Returns action plus each rubric's score/" +
+		"confidence, a safe_to_apply signal, and a weighted composite in [0,1]."
 	registry.Register(registry.Tool{
 		Name:        "review",
 		MCPName:     ToolNameReview,
@@ -205,23 +207,23 @@ func (h *ReviewHandler) run(ctx context.Context, in ReviewInput) (ReviewOutput, 
 // shapes are validated up front.
 func validateInput(in ReviewInput) error {
 	if strings.TrimSpace(in.Request) == "" {
-		return fmt.Errorf("jev_review: request must not be empty")
+		return fmt.Errorf("jev_review: request must not be empty; describe the original task/request the diff is meant to satisfy (a non-empty string, up to 50,000 characters)")
 	}
 	if strings.TrimSpace(in.Diff) == "" {
-		return fmt.Errorf("jev_review: diff must not be empty")
+		return fmt.Errorf("jev_review: diff must not be empty; provide the diff/patch text to review (a non-empty string, up to 50,000 characters)")
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf("jev_review: %w", err)
+		return fmt.Errorf(`jev_review: %w (0 means "use the default 0.8")`, err)
 	}
 	if in.CompositeFloor != 0 && (in.CompositeFloor < 0 || in.CompositeFloor > 1) {
-		return fmt.Errorf("jev_review: composite_floor must be in [0,1] if set, got %v", in.CompositeFloor)
+		return fmt.Errorf(`jev_review: composite_floor must be in the range [0,1] if set (0 means use the default 0.7), got %v; this is the minimum weighted composite required for action to be "auto"`, in.CompositeFloor)
 	}
 	for name, w := range map[string]float64{
 		"weights.correctness": in.Weights.Correctness, "weights.spec_match": in.Weights.SpecMatch,
 		"weights.test_gap": in.Weights.TestGap, "weights.blast_radius": in.Weights.BlastRadius,
 	} {
 		if w < 0 {
-			return fmt.Errorf("jev_review: %s must not be negative, got %v", name, w)
+			return fmt.Errorf("jev_review: %s must be >= 0, got %v; the four weights are normalized to sum to 1, so only non-negative values make sense", name, w)
 		}
 	}
 	return nil

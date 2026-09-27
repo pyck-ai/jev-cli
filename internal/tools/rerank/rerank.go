@@ -90,14 +90,14 @@ type Usage struct {
 
 // Candidate is one candidate to rank against the query.
 type Candidate struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID   string `json:"id" jsonschema:"Caller-chosen identifier for this candidate, e.g. \"a\" or \"doc-1\". Required, must be a non-empty string, and must be unique among all candidates in this call; echoed back in the output ranking to identify this candidate."`
+	Text string `json:"text" jsonschema:"This candidate's text content, judged for relevance against query. Required, must be a non-empty string."`
 }
 
 // RerankInput is the jev_rerank tool's input schema.
 type RerankInput struct {
-	Query      string      `json:"query" jsonschema:"The query every candidate is scored for relevance against."`
-	Candidates []Candidate `json:"candidates" jsonschema:"Candidates to rank. Capped at 250, and at an aggregate 100,000 characters of text across all candidates combined."`
+	Query      string      `json:"query" jsonschema:"The query every candidate is scored for relevance against, e.g. \"vendor security posture\". Required, must be a non-empty string."`
+	Candidates []Candidate `json:"candidates" jsonschema:"Candidates to rank, e.g. [{\"id\": \"a\", \"text\": \"...\"}, {\"id\": \"b\", \"text\": \"...\"}]. Required, an array of 1-250 {id, text} objects, with combined text across all candidates not exceeding 100,000 characters."`
 }
 
 // Ranked is one candidate's position in the final descending-relevance
@@ -148,10 +148,15 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
-		"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
+	description := "Rank a list of candidates by relevance to a query, using TypeSafe's Jev judgment " +
+		"model. Returns EVERY candidate sorted descending by relevance, not just the top one -- use " +
+		"jev_match instead if you only need the single best match and whether anything actually " +
+		"matches at all. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
 		"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
-		"a missing score as zero (which could badly distort the ordering)."
+		"a missing score as zero (which could badly distort the ordering). Example: " +
+		`{"query": "vendor security posture", "candidates": [{"id": "a", "text": "..."}, ` +
+		`{"id": "b", "text": "..."}]}. ` +
+		"Output: a ranked list of {rank, id, relevance} plus status."
 	registry.Register(registry.Tool{
 		Name:        "rerank",
 		MCPName:     ToolNameRerank,
@@ -301,31 +306,31 @@ func candKey(i int) string { return "cand" + strconv.Itoa(i) }
 // truncates).
 func validateInput(in RerankInput) error {
 	if strings.TrimSpace(in.Query) == "" {
-		return fmt.Errorf("jev_rerank: query must not be empty")
+		return fmt.Errorf("jev_rerank: query must not be empty; provide the text every candidate is scored for relevance against, e.g. \"vendor security posture\"")
 	}
 	if len(in.Candidates) == 0 {
-		return fmt.Errorf("jev_rerank: candidates must not be empty")
+		return fmt.Errorf("jev_rerank: candidates must not be empty; provide an array of 1-250 {\"id\": <string>, \"text\": <string>} objects, e.g. [{\"id\": \"a\", \"text\": \"...\"}]")
 	}
 	if len(in.Candidates) > maxCandidates {
-		return fmt.Errorf("jev_rerank: too many candidates (%d, max %d)", len(in.Candidates), maxCandidates)
+		return fmt.Errorf("jev_rerank: candidates has %d entries, exceeding the max of %d; send fewer candidates or split the call", len(in.Candidates), maxCandidates)
 	}
 	seen := make(map[string]bool, len(in.Candidates))
 	aggregate := 0
 	for i, c := range in.Candidates {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_rerank: candidates[%d].id must not be empty", i)
+			return fmt.Errorf("jev_rerank: candidates[%d].id must not be empty; each candidate needs a unique non-empty string id, e.g. \"a\"", i)
 		}
 		if seen[c.ID] {
-			return fmt.Errorf("jev_rerank: duplicate candidate id %q", c.ID)
+			return fmt.Errorf("jev_rerank: candidates[%d].id: %q is already used by another candidate; every candidate needs a unique id", i, c.ID)
 		}
 		seen[c.ID] = true
 		if strings.TrimSpace(c.Text) == "" {
-			return fmt.Errorf("jev_rerank: candidates[%d].text must not be empty", i)
+			return fmt.Errorf("jev_rerank: candidates[%d].text must not be empty; provide this candidate's text content to compare against query", i)
 		}
 		aggregate += len([]rune(c.Text))
 	}
 	if aggregate > maxAggregateChars {
-		return fmt.Errorf("jev_rerank: aggregate candidate text too long (%d chars, max %d)", aggregate, maxAggregateChars)
+		return fmt.Errorf("jev_rerank: candidates[].text: aggregate length across all candidates is %d characters, exceeding the %d character cap; shorten candidates' text or send fewer candidates", aggregate, maxAggregateChars)
 	}
 	return nil
 }

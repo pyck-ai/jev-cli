@@ -107,8 +107,8 @@ type Usage struct {
 // EvidenceItem is one item of gate's (always structured, unlike
 // jev_verify's dual-shape Evidence) evidence list.
 type EvidenceItem struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID   string `json:"id" jsonschema:"Short, unique identifier for this evidence item within this call, e.g. \"e1\". Must be non-empty and unique among all items in evidence[]."`
+	Text string `json:"text" jsonschema:"The evidence text itself (e.g. a doc excerpt or log line) that claims[] are checked against. Must be non-empty; the combined length of every evidence[].text is capped at 200,000 characters."`
 }
 
 // GateInput is the jev_gate tool's input schema: jev_review's input
@@ -117,11 +117,11 @@ type GateInput struct {
 	Request        string             `json:"request" jsonschema:"The original request/task the diff is meant to satisfy. Capped at 50,000 characters."`
 	Diff           string             `json:"diff" jsonschema:"The diff to review. Capped at 50,000 characters."`
 	Tests          string             `json:"tests,omitempty" jsonschema:"Optional test output/description. Capped at 50,000 characters."`
-	Claims         []string           `json:"claims" jsonschema:"Claims to verify against evidence (NOT against request/diff/tests). Capped at 16."`
-	Evidence       []EvidenceItem     `json:"evidence" jsonschema:"Evidence claims are verified against. Capped at 16 items, 200,000 characters aggregate."`
+	Claims         []string           `json:"claims" jsonschema:"Factual claims to verify strictly against evidence (never against request/diff/tests), e.g. [\"the cache is thread-safe\"]. 1-16 non-empty claims."`
+	Evidence       []EvidenceItem     `json:"evidence" jsonschema:"Evidence items claims[] are checked against; each needs id and text (see EvidenceItem). 1-16 items; combined evidence[].text capped at 200,000 characters."`
 	AutoAccept     float64            `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for both review rubrics and claim verification. Default 0.8."`
 	CompositeFloor float64            `json:"composite_floor,omitempty" jsonschema:"Minimum weighted review composite in [0,1] for the review half to be 'auto'. Default 0.7."`
-	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Optional override of the default review rubric weights; normalized to sum to 1."`
+	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Optional override of the default review rubric weights (correctness 0.4, spec_match 0.3, test_gap 0.15, blast_radius 0.15); normalized to sum to 1."`
 }
 
 // ClaimResult is one claim's verification result, evidence-only (see
@@ -190,11 +190,15 @@ func NewGateHandler(client *openrouter.Client, cfg config.Config, tracker *budge
 }
 
 func init() {
-	description := "jev_review plus claim verification against supplied evidence (evidence-only, never " +
-		"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
-		"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
-		"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
-		"closed throughout, never a fabricated verdict."
+	description := "jev_review's four-rubric diff assessment PLUS verifying specific factual claims " +
+		"against supplied evidence (evidence-only, never against request/diff/tests) -- all in one " +
+		"call. Use jev_gate (not jev_review) when you also have claims to fact-check; use jev_review " +
+		"alone otherwise. action=\"auto\" only if the review half is auto AND every claim verifies " +
+		"auto; a confidently contradicted claim forces action=\"escalate\" regardless of anything " +
+		"else. Example: {\"request\": \"add caching\", \"diff\": \"+func Cache() {}\", \"claims\": " +
+		"[\"the cache is thread-safe\"], \"evidence\": [{\"id\": \"e1\", \"text\": \"Cache holds no " +
+		"shared mutable state.\"}]}. Returns action (auto/review/escalate), the review assessment, " +
+		"and per-claim verification results; never fabricates a verdict."
 	registry.Register(registry.Tool{
 		Name:        "gate",
 		MCPName:     ToolNameGate,
@@ -420,58 +424,58 @@ func summarize(claims []ClaimResult) VerificationSummary {
 // budget or making a network call.
 func validateInput(in GateInput) error {
 	if strings.TrimSpace(in.Request) == "" {
-		return fmt.Errorf("jev_gate: request must not be empty")
+		return fmt.Errorf("jev_gate: request must not be empty; describe the original task/request the diff is meant to satisfy (a non-empty string, up to 50,000 characters)")
 	}
 	if strings.TrimSpace(in.Diff) == "" {
-		return fmt.Errorf("jev_gate: diff must not be empty")
+		return fmt.Errorf("jev_gate: diff must not be empty; provide the diff/patch text to review (a non-empty string, up to 50,000 characters)")
 	}
 	if len(in.Claims) == 0 {
-		return fmt.Errorf("jev_gate: claims must not be empty")
+		return fmt.Errorf(`jev_gate: claims must not be empty; provide 1-16 factual claims to verify against evidence, e.g. ["the cache is thread-safe"]`)
 	}
 	if len(in.Claims) > maxClaims {
-		return fmt.Errorf("jev_gate: too many claims (%d, max %d)", len(in.Claims), maxClaims)
+		return fmt.Errorf("jev_gate: claims has %d entries, more than the max of %d; verify fewer claims per call", len(in.Claims), maxClaims)
 	}
 	for i, c := range in.Claims {
 		if strings.TrimSpace(c) == "" {
-			return fmt.Errorf("jev_gate: claims[%d] must not be empty", i)
+			return fmt.Errorf(`jev_gate: claims[%d] must not be empty; each claim must be a non-empty string, e.g. "the cache is thread-safe"`, i)
 		}
 	}
 	if len(in.Evidence) == 0 {
-		return fmt.Errorf("jev_gate: evidence must not be empty")
+		return fmt.Errorf(`jev_gate: evidence must not be empty; provide 1-16 evidence items, each an object with id and text, e.g. [{"id":"e1","text":"Cache holds no shared mutable state."}]`)
 	}
 	if len(in.Evidence) > maxEvidenceItems {
-		return fmt.Errorf("jev_gate: too many evidence items (%d, max %d)", len(in.Evidence), maxEvidenceItems)
+		return fmt.Errorf("jev_gate: evidence has %d items, more than the max of %d; combine or drop some evidence items", len(in.Evidence), maxEvidenceItems)
 	}
 	seen := make(map[string]bool, len(in.Evidence))
 	aggregate := 0
 	for i, e := range in.Evidence {
 		if strings.TrimSpace(e.ID) == "" {
-			return fmt.Errorf("jev_gate: evidence[%d].id must not be empty", i)
+			return fmt.Errorf(`jev_gate: evidence[%d].id must not be empty; give this evidence item a short unique identifier, e.g. "e1"`, i)
 		}
 		if seen[e.ID] {
-			return fmt.Errorf("jev_gate: duplicate evidence id %q", e.ID)
+			return fmt.Errorf("jev_gate: evidence[%d].id: %q is already used by another evidence item; every evidence[].id must be unique within one call", i, e.ID)
 		}
 		seen[e.ID] = true
 		if strings.TrimSpace(e.Text) == "" {
-			return fmt.Errorf("jev_gate: evidence[%d].text must not be empty", i)
+			return fmt.Errorf("jev_gate: evidence[%d].text must not be empty; provide the evidence text claims[] will be checked against", i)
 		}
 		aggregate += len([]rune(e.Text))
 	}
 	if aggregate > maxEvidenceAggChars {
-		return fmt.Errorf("jev_gate: aggregate evidence text too long (%d chars, max %d)", aggregate, maxEvidenceAggChars)
+		return fmt.Errorf("jev_gate: evidence[].text totals %d characters, more than the max of %d combined; shorten or drop some evidence items", aggregate, maxEvidenceAggChars)
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf("jev_gate: %w", err)
+		return fmt.Errorf(`jev_gate: %w (0 means "use the default 0.8")`, err)
 	}
 	if in.CompositeFloor != 0 && (in.CompositeFloor < 0 || in.CompositeFloor > 1) {
-		return fmt.Errorf("jev_gate: composite_floor must be in [0,1] if set, got %v", in.CompositeFloor)
+		return fmt.Errorf(`jev_gate: composite_floor must be in the range [0,1] if set (0 means use the default 0.7), got %v; this is the minimum weighted review composite required for the review half to be "auto"`, in.CompositeFloor)
 	}
 	for name, w := range map[string]float64{
 		"weights.correctness": in.Weights.Correctness, "weights.spec_match": in.Weights.SpecMatch,
 		"weights.test_gap": in.Weights.TestGap, "weights.blast_radius": in.Weights.BlastRadius,
 	} {
 		if w < 0 {
-			return fmt.Errorf("jev_gate: %s must not be negative, got %v", name, w)
+			return fmt.Errorf("jev_gate: %s must be >= 0, got %v; the four weights are normalized to sum to 1, so only non-negative values make sense", name, w)
 		}
 	}
 	return nil

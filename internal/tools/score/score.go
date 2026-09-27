@@ -65,10 +65,10 @@ type Usage struct {
 
 // ScoreInput is the jev_score tool's input schema.
 type ScoreInput struct {
-	State        string `json:"state" jsonschema:"Text or data to be judged."`
-	ScaleMin     int    `json:"scale_min" jsonschema:"Inclusive lower bound of the integer scoring rubric, e.g. 0."`
-	ScaleMax     int    `json:"scale_max" jsonschema:"Inclusive upper bound of the integer scoring rubric, e.g. 2 or 10. Must be strictly greater than scale_min."`
-	Instructions string `json:"instructions" jsonschema:"What the score means and how to judge state, e.g. '0=incorrect, 1=partially correct, 2=fully correct'."`
+	State        string `json:"state" jsonschema:"The text or data to be judged, e.g. \"The PRD covers scope, metrics, and risks.\". Required, non-empty plain string (not an object or array)."`
+	ScaleMin     int    `json:"scale_min" jsonschema:"Inclusive lower bound of the integer scoring rubric, e.g. 0. Required integer; must be strictly less than scale_max."`
+	ScaleMax     int    `json:"scale_max" jsonschema:"Inclusive upper bound of the integer scoring rubric, e.g. 2 or 10. Required integer; must be strictly greater than scale_min, and scale_max-scale_min+1 (the number of levels) must be at most 1000."`
+	Instructions string `json:"instructions" jsonschema:"What the score means and how to judge state: describe every level from scale_min to scale_max, e.g. \"0=incomplete, 1=partial, 2=complete\". Required, non-empty string."`
 }
 
 // ScoreOutput is the jev_score tool's output schema.
@@ -140,12 +140,15 @@ func NewScoreHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 // this package's doc comment and internal/registry's for the full
 // mechanism.
 func init() {
-	description := "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
-		"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
-		"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
-		"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
-		"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
-		"a fabricated score."
+	description := "Judge a single piece of text/data against a numeric [scale_min, scale_max] rubric, " +
+		"returning a calibrated probability distribution over every integer level, not just a bare " +
+		"number. Use jev_check instead for a plain true/false judgment, or jev_verify for claims " +
+		"against separate evidence. Fails closed: always check `status` before trusting " +
+		"`score`/`confidence`/`probabilities` -- a malformed model answer is " +
+		"status=\"invalid_response\", never a fabricated score. Example: " +
+		`{"state": "The PRD covers scope, metrics, and risks.", "scale_min": 0, "scale_max": 2, ` +
+		`"instructions": "0=incomplete, 1=partial, 2=complete"}. ` +
+		"Output: score + confidence + full probability distribution."
 	registry.Register(registry.Tool{
 		Name:        "score",
 		MCPName:     ToolNameScore,
@@ -282,18 +285,23 @@ func (h *ScoreHandler) run(ctx context.Context, in ScoreInput) (ScoreOutput, err
 
 // validateInput rejects obviously-unusable input before spending any
 // budget or making a network call.
+//
+// Every error names the offending field, says what's wrong, and says
+// what's expected (including the limit/example): agents calling this
+// tool over MCP only ever see the error text, so the message has to
+// carry enough information to fix the call on the next try.
 func validateInput(in ScoreInput) error {
 	if strings.TrimSpace(in.State) == "" {
-		return fmt.Errorf("jev_score: state must not be empty")
+		return fmt.Errorf("jev_score: state: must not be empty; provide the text or data to judge as a non-empty string, e.g. \"The PRD covers scope, metrics, and risks.\"")
 	}
 	if strings.TrimSpace(in.Instructions) == "" {
-		return fmt.Errorf("jev_score: instructions must not be empty")
+		return fmt.Errorf("jev_score: instructions: must not be empty; describe what each scale level means, e.g. \"0=incorrect, 1=partially correct, 2=fully correct\"")
 	}
 	if in.ScaleMax <= in.ScaleMin {
-		return fmt.Errorf("jev_score: scale_max (%d) must be greater than scale_min (%d)", in.ScaleMax, in.ScaleMin)
+		return fmt.Errorf("jev_score: scale_max: must be greater than scale_min (got scale_max=%d, scale_min=%d); e.g. scale_min=0, scale_max=2", in.ScaleMax, in.ScaleMin)
 	}
 	if levels := in.ScaleMax - in.ScaleMin + 1; levels > maxScaleLevels {
-		return fmt.Errorf("jev_score: scale range too large (%d levels, max %d)", levels, maxScaleLevels)
+		return fmt.Errorf("jev_score: scale_min/scale_max: range too large (%d levels; max %d); narrow the gap between scale_min and scale_max so it spans at most %d levels", levels, maxScaleLevels, maxScaleLevels)
 	}
 	return nil
 }

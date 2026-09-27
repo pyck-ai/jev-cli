@@ -195,3 +195,72 @@ func TestValidateInput_TooManyClaims(t *testing.T) {
 		t.Error("expected error for too many claims")
 	}
 }
+
+// TestValidateInput_ErrorsExplainWhatIsExpected: agents calling jev_gate
+// over MCP only see the error text, so each validation error must say
+// what's wrong AND what's expected (field path, shape, example, or
+// limit/default) -- not just what's wrong.
+func TestValidateInput_ErrorsExplainWhatIsExpected(t *testing.T) {
+	base := baseInput()
+	cases := map[string]struct {
+		in   GateInput
+		want []string
+	}{
+		"empty request": {
+			GateInput{Request: " ", Diff: base.Diff, Claims: base.Claims, Evidence: base.Evidence},
+			[]string{"request", "50,000 characters"},
+		},
+		"empty diff": {
+			GateInput{Request: base.Request, Diff: " ", Claims: base.Claims, Evidence: base.Evidence},
+			[]string{"diff", "50,000 characters"},
+		},
+		"no claims": {
+			GateInput{Request: base.Request, Diff: base.Diff, Evidence: base.Evidence},
+			[]string{"claims", "1-16", "evidence"},
+		},
+		"empty claim": {
+			GateInput{Request: base.Request, Diff: base.Diff, Claims: []string{" "}, Evidence: base.Evidence},
+			[]string{"claims[0]", "non-empty string"},
+		},
+		"no evidence": {
+			GateInput{Request: base.Request, Diff: base.Diff, Claims: base.Claims},
+			[]string{"evidence", "id", "text"},
+		},
+		"empty evidence id": {
+			GateInput{Request: base.Request, Diff: base.Diff, Claims: base.Claims, Evidence: []EvidenceItem{{ID: "", Text: "t"}}},
+			[]string{"evidence[0].id", "unique identifier"},
+		},
+		"duplicate evidence id": {
+			GateInput{Request: base.Request, Diff: base.Diff, Claims: base.Claims, Evidence: []EvidenceItem{{ID: "e", Text: "t"}, {ID: "e", Text: "t2"}}},
+			[]string{`"e"`, "unique within one call"},
+		},
+		"bad auto_accept": {
+			GateInput{Request: base.Request, Diff: base.Diff, Claims: base.Claims, Evidence: base.Evidence, AutoAccept: 0.5},
+			[]string{"auto_accept", "default 0.8"},
+		},
+		"bad composite_floor": {
+			GateInput{Request: base.Request, Diff: base.Diff, Claims: base.Claims, Evidence: base.Evidence, CompositeFloor: 1.5},
+			[]string{"composite_floor", "[0,1]", "default 0.7"},
+		},
+		"negative weight": {
+			GateInput{
+				Request: base.Request, Diff: base.Diff, Claims: base.Claims, Evidence: base.Evidence,
+				Weights: reviewcore.Weights{Correctness: -1},
+			},
+			[]string{"weights.correctness", "normalized to sum to 1"},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil {
+				t.Fatalf("expected an error for case %q", name)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want it to contain %q", err, want)
+				}
+			}
+		})
+	}
+}

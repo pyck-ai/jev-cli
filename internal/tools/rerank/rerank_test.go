@@ -133,6 +133,37 @@ func TestValidateInput_AggregateCharCapRejectsRatherThanTruncates(t *testing.T) 
 	}
 }
 
+// TestValidateInput_ErrorsExplainTheExpectedShape guards against the
+// regression that motivated describing every field and enriching every
+// validation error (see rerank.go's jsonschema tags and validateInput):
+// an agent guessing the shape of a nested field like candidates[].id
+// must get an error that shows the expected shape, not just "what's
+// wrong". See internal/tools/ask's identically-named test for the
+// precedent this follows.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		in   RerankInput
+		want string
+	}{
+		"no candidates":        {RerankInput{Query: "q", Candidates: nil}, `{"id": "a", "text": "..."}`},
+		"empty candidate id":   {RerankInput{Query: "q", Candidates: []Candidate{{ID: "", Text: "x"}}}, "unique non-empty string id"},
+		"empty candidate text": {RerankInput{Query: "q", Candidates: []Candidate{{ID: "a", Text: ""}}}, "text content to compare against"},
+		"duplicate candidate id": {
+			RerankInput{Query: "q", Candidates: []Candidate{{ID: "a", Text: "x"}, {ID: "a", Text: "y"}}},
+			"already used by another candidate",
+		},
+		"empty query": {RerankInput{Query: " ", Candidates: []Candidate{{ID: "a", Text: "x"}}}, "scored for relevance against"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(c.in)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}
+
 func TestValidateInput_TooManyCandidates(t *testing.T) {
 	cands := make([]Candidate, maxCandidates+1)
 	for i := range cands {

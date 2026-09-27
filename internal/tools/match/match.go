@@ -89,15 +89,15 @@ type Usage struct {
 
 // Candidate is one candidate to match the query against.
 type Candidate struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID   string `json:"id" jsonschema:"Caller-chosen unique identifier for this candidate, e.g. \"doc_3\". Required, non-empty, and must be unique among all candidates in this call; echoed back in top[].id to identify the match."`
+	Text string `json:"text" jsonschema:"The candidate's text content to compare against the query, e.g. \"Refunds are available within 30 days.\". Required and non-empty; truncated to 2000 characters before being sent to the model."`
 }
 
 // MatchInput is the jev_match tool's input schema.
 type MatchInput struct {
-	Query      string      `json:"query" jsonschema:"The query to find the best-matching candidate for."`
-	Candidates []Candidate `json:"candidates" jsonschema:"Candidates to search over. Capped at 250; each candidate's text is truncated at 2000 characters before being sent to the model."`
-	TopK       int         `json:"top_k,omitempty" jsonschema:"Return at most this many top candidates, sorted by probability descending. Omitted or <= 0 returns every candidate."`
+	Query      string      `json:"query" jsonschema:"The search query to find the best-matching candidate for, e.g. \"what is the refund policy\". Required, non-empty string."`
+	Candidates []Candidate `json:"candidates" jsonschema:"Candidates to search over. Required; 1 to 250 {id, text} objects with unique ids, e.g. [{\"id\": \"a\", \"text\": \"Refunds within 30 days.\"}]; each candidate's text is truncated at 2000 characters before being sent to the model."`
+	TopK       int         `json:"top_k,omitempty" jsonschema:"Return at most this many top candidates, sorted by probability descending, e.g. 3. Optional; omitted or <= 0 returns every candidate."`
 }
 
 // TopMatch is one candidate's probability of being the single best match.
@@ -154,8 +154,12 @@ func NewMatchHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 
 func init() {
 	description := "Find the single best-matching candidate for a query, and whether any candidate " +
-		"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
-		"or missing model answer is reported as status=\"invalid_response\", never a fabricated match."
+		"actually answers it at all. Returns only the top pick(s), not a full ranking -- use " +
+		"jev_rerank instead if you need every candidate sorted by relevance. Fails closed at the " +
+		"whole-call level: a malformed model answer is status=\"invalid_response\", never a fabricated " +
+		"match. Example: " +
+		`{"query": "what is the refund policy", "candidates": [{"id": "a", "text": "Refunds within 30 days."}]}. ` +
+		"Output: top candidate(s) by probability plus exists_verdict (answered/partial/absent)."
 	registry.Register(registry.Tool{
 		Name:        "match",
 		MCPName:     ToolNameMatch,
@@ -333,27 +337,33 @@ func topMatches(probs map[string]float64, topK int) []TopMatch {
 
 // validateInput rejects obviously-unusable input before spending any
 // budget or making a network call.
+//
+// Every error names the offending field by its JSON path (e.g.
+// "candidates[2].id"), says what's wrong, and says what's expected
+// (including the limit/example): agents calling this tool over MCP only
+// ever see the error text, so the message has to carry enough
+// information to fix the call on the next try.
 func validateInput(in MatchInput) error {
 	if strings.TrimSpace(in.Query) == "" {
-		return fmt.Errorf("jev_match: query must not be empty")
+		return fmt.Errorf("jev_match: query: must not be empty; provide the search query as a non-empty string, e.g. \"what is the refund policy\"")
 	}
 	if len(in.Candidates) == 0 {
-		return fmt.Errorf("jev_match: candidates must not be empty")
+		return fmt.Errorf("jev_match: candidates: must not be empty; provide 1 to %d candidates as an array of {id, text} objects, e.g. [{\"id\": \"a\", \"text\": \"Refunds within 30 days.\"}]", maxCandidates)
 	}
 	if len(in.Candidates) > maxCandidates {
-		return fmt.Errorf("jev_match: too many candidates (%d, max %d)", len(in.Candidates), maxCandidates)
+		return fmt.Errorf("jev_match: candidates: too many entries (%d), more than the maximum of %d; reduce the list to at most %d candidates", len(in.Candidates), maxCandidates, maxCandidates)
 	}
 	seen := make(map[string]bool, len(in.Candidates))
 	for i, c := range in.Candidates {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_match: candidates[%d].id must not be empty", i)
+			return fmt.Errorf("jev_match: candidates[%d].id: must not be empty; give this candidate a unique non-empty id, e.g. \"a\"", i)
 		}
 		if seen[c.ID] {
-			return fmt.Errorf("jev_match: duplicate candidate id %q", c.ID)
+			return fmt.Errorf("jev_match: candidates[%d].id: %q is a duplicate; every candidate must have a unique id", i, c.ID)
 		}
 		seen[c.ID] = true
 		if strings.TrimSpace(c.Text) == "" {
-			return fmt.Errorf("jev_match: candidates[%d].text must not be empty", i)
+			return fmt.Errorf("jev_match: candidates[%d].text: must not be empty; provide the candidate's text content, e.g. \"Refunds within 30 days.\"", i)
 		}
 	}
 	return nil
