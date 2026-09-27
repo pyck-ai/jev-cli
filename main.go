@@ -125,13 +125,10 @@ func runMCPServer() {
 }
 
 // runCLI is jev-mcp's CLI run mode: build a cobra root command and let
-// every registered tool's RegisterCLI hook add itself as a subcommand,
-// skipping the tools whose RegisterCLI is nil (all 14 of them, today),
-// then execute it against the process's actual arguments (cobra reads
-// os.Args itself here -- root.Execute is never given an explicit
-// SetArgs). This is scaffolding for a later pass that will actually
-// populate RegisterCLI per tool: today it always yields a root command
-// with zero subcommands.
+// every registered tool's RegisterCLI hook add itself as a subcommand
+// (see newCLIRoot), then execute it against the process's actual
+// arguments (cobra reads os.Args itself here -- root.Execute is never
+// given an explicit SetArgs).
 //
 // The deps handed to RegisterCLI are a LAZY provider, deliberately not a
 // built *Deps: building them resolves the OpenRouter credential, the
@@ -141,13 +138,30 @@ func runMCPServer() {
 // what lets `jev --help`, `jev score --help`, and cobra's unknown-flag
 // errors work on a machine with no credentials configured at all.
 func runCLI() {
-	// NoArgs + a help-printing RunE make the root behave sanely at this
-	// intermediate stage (no subcommands registered yet): `jev --help`
-	// prints help and exits 0, and an unrecognized first argument (e.g.
-	// `jev score` before score's RegisterCLI exists) produces cobra's
-	// "unknown command" error instead of cobra v1.10's silent no-op for
-	// a non-runnable, childless root (verified empirically against
-	// v1.10.2: without this, both cases print nothing and exit 0).
+	root := newCLIRoot(func() *registry.Deps { return buildDeps(3) })
+
+	// Exit 3 on any Execute error (unknown command, bad flags): the CLI
+	// exit-code scheme reserves 3 for hard errors, 0/1/2 for verdict
+	// outcomes.
+	if err := root.Execute(); err != nil {
+		os.Exit(3)
+	}
+}
+
+// newCLIRoot builds the cobra root command and lets every registered
+// tool's RegisterCLI hook add itself as a subcommand, skipping any tool
+// whose RegisterCLI is nil (not yet migrated to CLI mode). Split out
+// from runCLI so tests can build the same root against a fake
+// registry.DepsProvider without going through buildDeps' os.Exit-prone
+// credential resolution (see main_test.go).
+//
+// NoArgs + a help-printing RunE make the root behave sanely even before
+// every tool has a CLI subcommand: `jev --help` prints help and exits 0,
+// and an unrecognized first argument produces cobra's "unknown command"
+// error instead of cobra v1.10's silent no-op for a non-runnable,
+// childless root (verified empirically against v1.10.2: without this,
+// both cases print nothing and exit 0).
+func newCLIRoot(provider registry.DepsProvider) *cobra.Command {
 	root := &cobra.Command{
 		Use:  "jev",
 		Args: cobra.NoArgs,
@@ -157,16 +171,10 @@ func runCLI() {
 	}
 	for _, t := range registry.All() {
 		if t.RegisterCLI != nil {
-			t.RegisterCLI(root, func() *registry.Deps { return buildDeps(3) })
+			t.RegisterCLI(root, provider)
 		}
 	}
-
-	// Exit 3 on any Execute error (unknown command, bad flags): the CLI
-	// exit-code scheme reserves 3 for hard errors, 0/1/2 for verdict
-	// outcomes.
-	if err := root.Execute(); err != nil {
-		os.Exit(3)
-	}
+	return root
 }
 
 // buildDeps resolves the API key and config and builds the shared

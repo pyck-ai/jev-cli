@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/audit"
 	"github.com/pyck-ai/jev-mcp/internal/budget"
@@ -139,37 +140,49 @@ func NewScoreHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 // this package's doc comment and internal/registry's for the full
 // mechanism.
 func init() {
+	description := "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
+		"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
+		"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
+		"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
+		"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
+		"a fabricated score."
 	registry.Register(registry.Tool{
-		Name:    "score",
-		MCPName: ToolNameScore,
-		Description: "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
-			"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
-			"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
-			"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
-			"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
-			"a fabricated score.",
+		Name:        "score",
+		MCPName:     ToolNameScore,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewScoreHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameScore,
-				Description: "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
-					"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
-					"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
-					"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
-					"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
-					"a fabricated score.",
+				Name:        ToolNameScore,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[ScoreInput, ScoreOutput].
+// Handle implements mcp.ToolHandlerFor[ScoreInput, ScoreOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *ScoreHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in ScoreInput) (*mcp.CallToolResult, ScoreOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, ScoreOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_score's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *ScoreHandler) run(ctx context.Context, in ScoreInput) (ScoreOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, ScoreOutput{}, err
+		return ScoreOutput{}, err
 	}
 
 	stateHash := audit.HashState(in.State)
@@ -190,7 +203,7 @@ func (h *ScoreHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Sc
 			LatencyMs:        time.Since(start).Milliseconds(),
 			Error:            err.Error(),
 		})
-		return nil, ScoreOutput{}, err
+		return ScoreOutput{}, err
 	}
 
 	criteria := make([]string, levels)
@@ -212,7 +225,7 @@ func (h *ScoreHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Sc
 			LatencyMs:        latencyMs,
 			Error:            callErr.Error(),
 		})
-		return nil, ScoreOutput{}, fmt.Errorf("jev_score: %w", callErr)
+		return ScoreOutput{}, fmt.Errorf("jev_score: %w", callErr)
 	}
 
 	out := ScoreOutput{
@@ -264,7 +277,7 @@ func (h *ScoreHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Sc
 	}
 	h.auditLog.Log(entry)
 
-	return nil, out, nil
+	return out, nil
 }
 
 // validateInput rejects obviously-unusable input before spending any

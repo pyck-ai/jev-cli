@@ -48,6 +48,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -122,32 +123,42 @@ func NewDoctorHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
+	description := "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
+		"and report the currently active configuration (resolved model, credential source, budget " +
+		"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
+		"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
+		"since that IS this tool's useful result."
 	registry.Register(registry.Tool{
-		Name:    "doctor",
-		MCPName: ToolNameDoctor,
-		Description: "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
-			"and report the currently active configuration (resolved model, credential source, budget " +
-			"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
-			"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
-			"since that IS this tool's useful result.",
+		Name:        "doctor",
+		MCPName:     ToolNameDoctor,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewDoctorHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameDoctor,
-				Description: "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
-					"and report the currently active configuration (resolved model, credential source, budget " +
-					"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
-					"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
-					"since that IS this tool's useful result.",
+				Name:        ToolNameDoctor,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[DoctorInput, DoctorOutput]. See
-// package doc comment for why this practically never returns a Go error.
+// Handle implements mcp.ToolHandlerFor[DoctorInput, DoctorOutput]: a
+// thin adapter over run (the transport-agnostic core both the MCP
+// handler and the CLI subcommand share). See package doc comment for
+// why run practically never returns a Go error.
 func (h *DoctorHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in DoctorInput) (*mcp.CallToolResult, DoctorOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, DoctorOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_doctor's transport-agnostic core.
+func (h *DoctorHandler) run(ctx context.Context, in DoctorInput) (DoctorOutput, error) {
 	start := time.Now()
 
 	model := in.ProbeModel
@@ -176,7 +187,7 @@ func (h *DoctorHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 			Tool: ToolNameDoctor, Model: model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: out.LatencyMs, Error: errMsg,
 		})
-		return nil, out, nil
+		return out, nil
 	}
 
 	resp, callErr := h.client.Ask(ctx, model, map[string]openrouter.Question{
@@ -195,7 +206,7 @@ func (h *DoctorHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 			Tool: ToolNameDoctor, Model: model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: latencyMs, Error: errMsg,
 		})
-		return nil, out, nil
+		return out, nil
 	}
 
 	out := DoctorOutput{Model: model, Reachable: true, LatencyMs: latencyMs, Error: nil, Config: snapshot}
@@ -230,5 +241,5 @@ func (h *DoctorHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 		Status: status, CostUSD: costUSD, LatencyMs: out.LatencyMs, BudgetExceeded: out.BudgetExceeded,
 	})
 
-	return nil, out, nil
+	return out, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -225,5 +226,36 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 			gotNames[i] = tool.Name
 		}
 		t.Errorf("len(Tools) = %d, want %d\ngot:  %v\nwant: %v", len(res.Tools), len(want), gotNames, want)
+	}
+}
+
+// TestNewCLIRoot_RegistersOnlyMigratedTools is the CLI-side counterpart
+// to TestNewServer_RegistersEveryToolExactlyOnce: MCP mode always
+// exposes all 14 tools (asserted above), but CLI mode only exposes a
+// subcommand for tools whose RegisterCLI is non-nil. As of this pass,
+// that's score and doctor; every other tool's RegisterCLI is still nil
+// (see internal/registry's package doc comment) pending a later pass.
+// This test is a deliberate tripwire: it must be updated (by adding the
+// newly-migrated tool's name to want) every time another tool gains a
+// CLI subcommand, so the roster here always reflects reality rather
+// than silently drifting stale.
+func TestNewCLIRoot_RegistersOnlyMigratedTools(t *testing.T) {
+	provider := func() *registry.Deps {
+		t.Fatal("provider should not be invoked merely by building the CLI root or listing its subcommands")
+		return nil
+	}
+	root := newCLIRoot(provider)
+
+	want := []string{"doctor", "score"}
+	var got []string
+	for _, c := range root.Commands() {
+		if c.Name() == "help" || c.Name() == "completion" {
+			continue // cobra's own built-ins, not a jev tool
+		}
+		got = append(got, c.Name())
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("CLI subcommands = %v, want %v", got, want)
 	}
 }
