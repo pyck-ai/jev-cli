@@ -7,9 +7,9 @@ import (
 )
 
 // TestRegisterAndAll_PreservesOrder confirms All() returns Tools in the
-// exact order they were passed to Register, since main.go relies on that
+// exact order they were passed to Register, since cmd/jev/main.go relies on that
 // order matching Go's package-init order for its blank imports (not that
-// main.go's behavior actually depends on tool registration order today,
+// cmd/jev/main.go's behavior actually depends on tool registration order today,
 // but a silent reordering would be a surprising regression for this
 // package to introduce).
 func TestRegisterAndAll_PreservesOrder(t *testing.T) {

@@ -10,7 +10,7 @@
 // This package is a self-registering plugin (see internal/registry's
 // package doc comment for the overall mechanism): its init() function
 // registers a registry.Tool whose RegisterMCP wires jev_check onto
-// whatever *mcp.Server main.go passes it at startup.
+// whatever *mcp.Server cmd/jev/main.go passes it at startup.
 //
 // # Batching
 //

@@ -50,8 +50,16 @@ Out of the box, jev-cli includes:
 
 ## Getting started
 
+Install the `jev` binary into `$(go env GOPATH)/bin` (or `$GOBIN`):
+
 ```sh
-go build -o jev .                    # build the binary
+go install github.com/pyck-ai/jev-cli/cmd/jev@main
+```
+
+Or build from a checkout:
+
+```sh
+go build -o jev ./cmd/jev            # build the binary
 go test -race ./...                  # unit + fake-server integration tests
 OPENROUTER_API_KEY=sk-or-... ./jev   # MCP server: smoke-test it standalone
 ```
@@ -75,7 +83,7 @@ OPENROUTER_API_KEY=sk-or-... ./jev score --state "2+2=4" --scale-min 0 --scale-m
 It's runnable with no local checkout or build step at all:
 
 ```sh
-go run github.com/pyck-ai/jev-cli@main score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
+go run github.com/pyck-ai/jev-cli/cmd/jev@main score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
 ```
 
 To use it from an MCP client, see
@@ -124,7 +132,7 @@ find your way around.
 
 ## Status
 
-Early (`v0.1.0`, see `main.go`'s `serverVersion`). Tool schemas, defaults,
+Early (`v0.1.0`, see `cmd/jev/main.go`'s `serverVersion`). Tool schemas, defaults,
 and thresholds may still change between releases.
 
 ## License

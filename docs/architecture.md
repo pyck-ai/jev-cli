@@ -22,7 +22,7 @@ Every tool is a self-registering plugin, modeled directly on Go's
   `RegisterCLI` closure that does the equivalent for a `*cobra.Command`
   (every one of the 14 tools populates both today -- see
   [CLI mode](#cli-mode) below).
-- `main.go` activates the whole tool set with one blank import per tool
+- `cmd/jev/main.go` activates the whole tool set with one blank import per tool
   package (`_ "github.com/pyck-ai/jev-cli/internal/tools/<name>"`), builds
   one `*registry.Deps`, then loops `for _, t := range registry.All() {
   t.RegisterMCP(server, deps) }` before starting the server.
@@ -84,10 +84,10 @@ one's tests can catch a behavior regression.
 `<name>`) whose `init()` registers itself — see `internal/tools/check`'s
 `check.go` for a compact reference implementation, or
 `internal/tools/score`'s `score.go` for the original tool this architecture
-was extracted from. Then add one blank-import line to `main.go`.
+was extracted from. Then add one blank-import line to `cmd/jev/main.go`.
 
 **Removing a tool**: delete that package directory, then delete its
-blank-import line from `main.go`.
+blank-import line from `cmd/jev/main.go`.
 
 **No other file needs to change either way** — that is the entire point of
 `internal/registry` (see that package's own doc comment for the full
@@ -143,8 +143,8 @@ Shared plumbing every tool reuses rather than reimplementing:
 
 ```
 go.mod / go.sum
-main.go                        // server setup, blank-imports every tool package, API key resolution + fail-fast
-main_test.go                    // end-to-end MCP wire-protocol test + full-roster registration guard
+cmd/jev/main.go                // the jev binary: run-mode switch, blank-imports every tool package, API key resolution + fail-fast
+cmd/jev/main_test.go           // end-to-end MCP wire-protocol test + MCP and CLI roster guards
 internal/config/                // config file loading + env overrides
 internal/credentials/           // OpenRouter API key resolution: env var, then opencode's auth store
 internal/openrouter/            // HTTP client, retry/backoff, SystemOne request/response shapes, Client.Ask

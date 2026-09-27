@@ -9,7 +9,14 @@ tools these commands build are put together.
 ## Build
 
 ```sh
-go build -o jev .
+go build -o jev ./cmd/jev
+```
+
+To install without a checkout, use `go install`, which puts `jev` in
+`$GOBIN` (default `$(go env GOPATH)/bin`):
+
+```sh
+go install github.com/pyck-ai/jev-cli/cmd/jev@main
 ```
 
 `go vet ./...`, `gofmt -l .` (no output), and `go test -race ./...` are also
@@ -29,7 +36,7 @@ No `OPENROUTER_API_KEY` is required to run the test suite: every
 runs its handler tests against an `httptest.Server` standing in for
 OpenRouter (see `internal/openrouter/client_test.go` and
 `internal/tools/score/score_test.go` for the pattern every other tool
-package follows), and `main_test.go` drives `jev_score` through a real MCP
+package follows), and `cmd/jev/main_test.go` drives `jev_score` through a real MCP
 client/server session (in-memory transport) end to end, plus a
 `TestNewServer_RegistersEveryToolExactlyOnce` regression guard confirming
 all 14 tools register under distinct names. **None of this exercises a
@@ -65,7 +72,7 @@ jev: starting (tools=14, default_model=~typesafe/jev-latest, config=..., audit_l
 store at <path>` instead when falling back to opencode's stored credentials
 — see [API key](configuration.md#api-key-required) — and never prints the key value either
 way. `tools=14` counts every self-registered tool, i.e. it moves in lockstep
-with the blank imports in `main.go` — see
+with the blank imports in `cmd/jev/main.go` — see
 [Plugin architecture](architecture.md#plugin-architecture); it does not name a single
 resolved model, since different tools may resolve different models via
 `tool_model_overrides`.) It then sits waiting for JSON-RPC frames on stdin.
@@ -79,7 +86,7 @@ and the process exits non-zero.
 jev-cli is a stdio MCP server: any MCP-compatible client can spawn it
 directly. Two invocation styles work everywhere below:
 
-- **`go run github.com/pyck-ai/jev-cli@main`** — no local checkout or build
+- **`go run github.com/pyck-ai/jev-cli/cmd/jev@main`** — no local checkout or build
   step; Go resolves, builds, and runs the module in one command. No tagged
   release is required: `@main` names the branch directly, which Go resolves
   to its current commit via a pseudo-version (this project deliberately
@@ -88,9 +95,11 @@ directly. Two invocation styles work everywhere below:
   branch tip. Requires the Go toolchain and network access to
   `proxy.golang.org` (or a configured `GOPROXY` mirror) on whatever machine
   runs it, and re-resolves/compiles on every cold start.
-- **A locally built binary** (`go build -o jev .` — see [Build](#build))
-  — no network or toolchain needed at runtime, lower-latency cold start.
-  Prefer this for a checked-out working copy you already have.
+- **An installed or locally built binary** (`go install
+  github.com/pyck-ai/jev-cli/cmd/jev@main`, or `go build -o jev ./cmd/jev`
+  — see [Build](#build)) — no network or toolchain needed at runtime,
+  lower-latency cold start. With `jev` on your `PATH`, the MCP client
+  command is just `jev`.
 
 Every example below uses `go run`; swap in a path to a locally built binary
 if you prefer.
@@ -105,7 +114,7 @@ Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-s
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-cli@main"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-cli/cmd/jev@main"],
       "enabled": true
     }
   }
@@ -125,7 +134,7 @@ use a *different* OpenRouter key than the rest of opencode:
   "mcp": {
     "jev": {
       "type": "local",
-      "command": ["go", "run", "github.com/pyck-ai/jev-cli@main"],
+      "command": ["go", "run", "github.com/pyck-ai/jev-cli/cmd/jev@main"],
       "enabled": true,
       "environment": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
@@ -142,7 +151,7 @@ is checked into version control.
 Register a user-scoped stdio server with `claude mcp add`:
 
 ```sh
-claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-cli@main
+claude mcp add --transport stdio jev -- go run github.com/pyck-ai/jev-cli/cmd/jev@main
 ```
 
 Or add it directly to a project's `.mcp.json` for team-wide, version-controlled
@@ -154,7 +163,7 @@ config:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-cli@main"]
+      "args": ["run", "github.com/pyck-ai/jev-cli/cmd/jev@main"]
     }
   }
 }
@@ -171,7 +180,7 @@ block to the server entry above:
     "jev": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "github.com/pyck-ai/jev-cli@main"],
+      "args": ["run", "github.com/pyck-ai/jev-cli/cmd/jev@main"],
       "env": { "OPENROUTER_API_KEY": "sk-or-..." }
     }
   }

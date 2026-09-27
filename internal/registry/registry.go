@@ -2,7 +2,7 @@
 // mechanism, modeled directly on Go's database/sql driver pattern (e.g.
 // `import _ "github.com/lib/pq"`): each MCP tool lives in its own package
 // under internal/tools/<name>/, and that package's init() function calls
-// Register to record a Tool. main.go activates the whole tool set with
+// Register to record a Tool. cmd/jev/main.go activates the whole tool set with
 // one blank import per tool package plus a single loop over All().
 //
 // # Two run modes, one registration
@@ -12,7 +12,7 @@
 // (wiring it onto a *cobra.Command, for jev-cli's CLI run mode --
 // invoked as `jev <name> ...` instead of speaking MCP over stdio). Only
 // RegisterMCP is populated by any tool today: RegisterCLI is nil for
-// every one of the 14 existing tools, and main.go's CLI dispatch path
+// every one of the 14 existing tools, and cmd/jev/main.go's CLI dispatch path
 // skips any Tool whose RegisterCLI is nil. Populating RegisterCLI per
 // tool is deliberately left to a later pass.
 //
@@ -21,10 +21,10 @@
 // Adding a tool: create a new package under internal/tools/<name>/ whose
 // init() calls registry.Register(...) (see internal/tools/score/score.go
 // for the reference implementation), then add one blank-import line to
-// main.go: `_ "github.com/pyck-ai/jev-cli/internal/tools/<name>"`.
+// cmd/jev/main.go: `_ "github.com/pyck-ai/jev-cli/internal/tools/<name>"`.
 //
 // Removing a tool: delete that package directory, then delete its
-// blank-import line from main.go. No other file needs to change either
+// blank-import line from cmd/jev/main.go. No other file needs to change either
 // way -- that is the entire point of this package.
 //
 // # Concurrency
@@ -52,7 +52,7 @@ import (
 )
 
 // Deps is the shared application infrastructure every tool handler may
-// need, built once in main.go from real dependencies (or once per test
+// need, built once in cmd/jev/main.go from real dependencies (or once per test
 // from fakes/httptest servers) and passed to every registered Tool's
 // RegisterMCP (and, once populated, RegisterCLI).
 //
@@ -85,8 +85,8 @@ type Deps struct {
 type DepsProvider func() *Deps
 
 // Tool is what a tool package's init() passes to Register: everything
-// main.go needs to activate that tool in either of jev-cli's run modes,
-// without main.go knowing anything about the tool itself.
+// cmd/jev/main.go needs to activate that tool in either of jev-cli's run modes,
+// without cmd/jev/main.go knowing anything about the tool itself.
 type Tool struct {
 	// Name is this tool's CLI subcommand name, e.g. "score" -- bare, no
 	// "jev_" prefix, matching its internal/tools/<name>/ package
@@ -106,10 +106,10 @@ type Tool struct {
 	// exposing more than one MCP tool) against server, building whatever
 	// per-tool handler it needs from deps rather than constructing its
 	// own client/config/budget/audit. Called once per tool, in
-	// registration order, by main.go's MCP-server run mode.
+	// registration order, by cmd/jev/main.go's MCP-server run mode.
 	RegisterMCP func(server *mcp.Server, deps *Deps)
 	// RegisterCLI wires this tool onto root as a CLI subcommand. nil for
-	// a tool that has no CLI subcommand yet -- main.go's CLI run mode
+	// a tool that has no CLI subcommand yet -- cmd/jev/main.go's CLI run mode
 	// skips any Tool whose RegisterCLI is nil (true of every one of the
 	// 14 tools registered today; see the package doc comment).
 	//
@@ -117,7 +117,7 @@ type Tool struct {
 	// the subcommand actually runs, never during cobra's flag parsing or
 	// help paths, so `jev --help` (and cobra's own error messages) work
 	// with no OpenRouter credentials, config, or audit log present. The
-	// provider itself exits the process on failure (see main.go's
+	// provider itself exits the process on failure (see cmd/jev/main.go's
 	// buildDeps), so a subcommand's RunE can treat its result as ready.
 	RegisterCLI func(root *cobra.Command, deps DepsProvider)
 }
@@ -137,7 +137,7 @@ func Register(t Tool) {
 // All returns every Tool recorded so far via Register, in registration
 // order. Because Register is only ever called from package init()
 // functions, that order is Go's own package initialization order for
-// whichever set of tool packages main.go blank-imports.
+// whichever set of tool packages cmd/jev/main.go blank-imports.
 func All() []Tool {
 	return tools
 }

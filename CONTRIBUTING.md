@@ -8,7 +8,7 @@ full document in [`docs/`](docs/README.md).
 
 ```sh
 git clone <repo-url> && cd jev-cli
-go build -o jev .
+go build -o jev ./cmd/jev
 ```
 
 Go 1.25+ and an OpenRouter API key are all you need — see

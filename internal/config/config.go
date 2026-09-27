@@ -6,7 +6,7 @@
 // project's security requirements it is supplied exclusively via the
 // OPENROUTER_API_KEY environment variable, is never read from the config
 // file, and must never be logged or embedded in an error message. Callers
-// read it directly from the environment (see main.go) and pass it around
+// read it directly from the environment (see cmd/jev/main.go) and pass it around
 // out-of-band from *Config.
 package config
 

@@ -6,7 +6,7 @@
 // This package is a self-registering plugin (see internal/registry's
 // package doc comment for the overall mechanism): its init() function
 // registers a registry.Tool whose RegisterMCP wires jev_score onto
-// whatever *mcp.Server main.go passes it at startup. main.go activates it
+// whatever *mcp.Server cmd/jev/main.go passes it at startup. cmd/jev/main.go activates it
 // with a single blank import,
 // `_ "github.com/pyck-ai/jev-cli/internal/tools/score"` -- deleting this
 // directory and that one line is sufficient to remove the tool entirely;
@@ -136,7 +136,7 @@ func NewScoreHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 // init registers jev_score with internal/registry, so a blank import of
-// this package (see main.go) is all that's needed to activate it -- see
+// this package (see cmd/jev/main.go) is all that's needed to activate it -- see
 // this package's doc comment and internal/registry's for the full
 // mechanism.
 func init() {
