@@ -50,46 +50,46 @@ Out of the box, jev-cli includes:
 
 ## Getting started
 
-Install the `jev` binary into `$(go env GOPATH)/bin` (or `$GOBIN`):
+Needs Go 1.25+ and an OpenRouter API key with access to the `typesafe/jev-*`
+model family — see [Configuration](docs/configuration.md) for how the key is
+resolved (it reuses opencode's stored OpenRouter key if there is one).
+
+Install the `jev` binary from the `main` branch into `$(go env GOPATH)/bin`
+(or `$GOBIN`); re-run the same command to update:
 
 ```sh
 go install github.com/pyck-ai/jev-cli/cmd/jev@main
 ```
 
-Or build from a checkout:
+Use it as a CLI:
 
 ```sh
-go build -o jev ./cmd/jev            # build the binary
-go test -race ./...                  # unit + fake-server integration tests
-OPENROUTER_API_KEY=sk-or-... ./jev   # MCP server: smoke-test it standalone
+jev score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
+jev --help
 ```
 
-Needs Go 1.25+ (developed against go1.26.8) and an OpenRouter API key with
-access to the `typesafe/jev-*` model family — see
-[Configuration](docs/configuration.md) for how the key is resolved.
-`go vet ./...` and `gofmt -l .` are also clean; see
-[Development](docs/development.md) for the full build/test/run workflow. No
-real OpenRouter account is needed to run the tests — every tool's handler is
-tested against a fake OpenRouter server instead (see
-[Testing](docs/development.md#testing)).
+Or as an MCP server: with no arguments, `jev` speaks MCP over stdio, so an
+MCP client's server command is just `jev`. See
+[Using jev from an MCP client](docs/development.md#using-jev-from-an-mcp-client)
+for opencode and Claude Code configs.
 
-Or use it as a CLI right away, same binary:
-
-```sh
-OPENROUTER_API_KEY=sk-or-... ./jev score --state "2+2=4" --scale-min 0 --scale-max 1 \
-  --instructions "0=false, 1=true"
-```
-
-It's runnable with no local checkout or build step at all:
+To run it without installing anything, use `go run`, which fetches and
+builds the current `main` branch on each start:
 
 ```sh
 go run github.com/pyck-ai/jev-cli/cmd/jev@main score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
 ```
 
-To use it from an MCP client, see
-[Using jev from an MCP client](docs/development.md#using-jev-from-an-mcp-client)
-for opencode and Claude Code examples (or a locally built binary instead of
-`go run`, if you prefer).
+To work on it from a checkout:
+
+```sh
+go build -o jev ./cmd/jev   # build the binary
+go test -race ./...         # unit + fake-server integration tests
+```
+
+No OpenRouter account is needed to run the tests; every tool is tested
+against a fake OpenRouter server (see [Testing](docs/development.md#testing)).
+See [Development](docs/development.md) for the full workflow.
 
 ## Documentation
 

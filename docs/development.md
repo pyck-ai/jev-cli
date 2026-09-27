@@ -83,26 +83,29 @@ and the process exits non-zero.
 
 ## Using jev from an MCP client
 
-jev-cli is a stdio MCP server: any MCP-compatible client can spawn it
-directly. Two invocation styles work everywhere below:
+`jev` with no arguments is a stdio MCP server, so any MCP client can spawn
+it. There are two ways to point a client at it:
 
-- **`go run github.com/pyck-ai/jev-cli/cmd/jev@main`** — no local checkout or build
-  step; Go resolves, builds, and runs the module in one command. No tagged
-  release is required: `@main` names the branch directly, which Go resolves
-  to its current commit via a pseudo-version (this project deliberately
-  ships no tags/releases for now). Pin a specific commit instead
-  (`@<sha>`) if you want a fixed version rather than always tracking the
-  branch tip. Requires the Go toolchain and network access to
-  `proxy.golang.org` (or a configured `GOPROXY` mirror) on whatever machine
-  runs it, and re-resolves/compiles on every cold start.
-- **An installed or locally built binary** (`go install
-  github.com/pyck-ai/jev-cli/cmd/jev@main`, or `go build -o jev ./cmd/jev`
-  — see [Build](#build)) — no network or toolchain needed at runtime,
-  lower-latency cold start. With `jev` on your `PATH`, the MCP client
-  command is just `jev`.
+- **`go run github.com/pyck-ai/jev-cli/cmd/jev@main`**: tracks the `main`
+  branch. Each time the client starts the server, Go looks up the branch's
+  current commit and builds it, so you always get the latest `main` with
+  no install step. The project has no tagged releases; if it gets them,
+  `@latest` would switch to the newest tag, which is why the examples use
+  `@main`. Needs the Go toolchain and network access, and cold starts are
+  slower because of the lookup and compile. Use `@<commit>` instead if you
+  want a fixed version.
+- **An installed binary**: `go install github.com/pyck-ai/jev-cli/cmd/jev@main`,
+  then use `jev` as the command. Faster to start and works offline; update
+  it by re-running `go install`.
 
-Every example below uses `go run`; swap in a path to a locally built binary
-if you prefer.
+The examples below use `go run`. To use an installed binary, replace the
+command with `jev` (opencode: `"command": ["jev"]`; Claude Code:
+`claude mcp add --transport stdio jev -- jev`).
+
+To run your own checkout instead (for example while editing the tools),
+point the command at it: `go run -C /path/to/jev-cli ./cmd/jev`. Every
+server start then builds your working tree, so an edit takes effect the
+next time the client restarts or reconnects the server.
 
 ### opencode
 
