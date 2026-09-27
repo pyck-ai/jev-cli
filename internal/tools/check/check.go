@@ -9,8 +9,8 @@
 //
 // This package is a self-registering plugin (see internal/registry's
 // package doc comment for the overall mechanism): its init() function
-// registers a registry.Registrar that wires jev_check onto whatever
-// *mcp.Server main.go passes it at startup.
+// registers a registry.Tool whose RegisterMCP wires jev_check onto
+// whatever *mcp.Server main.go passes it at startup.
 //
 // # Batching
 //
@@ -142,16 +142,26 @@ func NewCheckHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewCheckHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameCheck,
-			Description: "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
-				"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
-				"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
-				"closed per proposition: a malformed or missing answer is reported as " +
-				"status=\"invalid_response\" with action=\"review\", never a fabricated verdict.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "check",
+		MCPName: ToolNameCheck,
+		Description: "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
+			"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
+			"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
+			"closed per proposition: a malformed or missing answer is reported as " +
+			"status=\"invalid_response\" with action=\"review\", never a fabricated verdict.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewCheckHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameCheck,
+				Description: "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
+					"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
+					"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
+					"closed per proposition: a malformed or missing answer is reported as " +
+					"status=\"invalid_response\" with action=\"review\", never a fabricated verdict.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

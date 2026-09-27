@@ -189,16 +189,26 @@ func NewGateHandler(client *openrouter.Client, cfg config.Config, tracker *budge
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewGateHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameGate,
-			Description: "jev_review plus claim verification against supplied evidence (evidence-only, never " +
-				"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
-				"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
-				"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
-				"closed throughout, never a fabricated verdict.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "gate",
+		MCPName: ToolNameGate,
+		Description: "jev_review plus claim verification against supplied evidence (evidence-only, never " +
+			"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
+			"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
+			"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
+			"closed throughout, never a fabricated verdict.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewGateHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameGate,
+				Description: "jev_review plus claim verification against supplied evidence (evidence-only, never " +
+					"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
+					"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
+					"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
+					"closed throughout, never a fabricated verdict.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

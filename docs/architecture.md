@@ -14,14 +14,30 @@ Every tool is a self-registering plugin, modeled directly on Go's
 
 - Each tool lives in its own package under `internal/tools/<name>/`.
 - That package's `init()` function calls `registry.Register(...)` with a
-  `registry.Registrar` -- a closure that builds the tool's handler from
-  `*registry.Deps` (the shared `Client`/`Config`/`Budget`/`Audit`
-  infrastructure) and calls `mcp.AddTool` against whatever `*mcp.Server`
-  it's given.
+  `registry.Tool`: `Name` (bare CLI subcommand name, e.g. `"score"`),
+  `MCPName` (e.g. `"jev_score"`), `Description`, a `RegisterMCP` closure
+  that builds the tool's handler from `*registry.Deps` (the shared
+  `Client`/`Config`/`Budget`/`Audit` infrastructure) and calls
+  `mcp.AddTool` against whatever `*mcp.Server` it's given, and a
+  `RegisterCLI` closure that does the equivalent for a `*cobra.Command`
+  (`nil` for every tool today -- see [CLI mode](#cli-mode) below).
 - `main.go` activates the whole tool set with one blank import per tool
   package (`_ "github.com/pyck-ai/jev-mcp/internal/tools/<name>"`), builds
-  one `*registry.Deps`, then loops `for _, reg := range registry.All() {
-  reg(server, deps) }` before starting the server.
+  one `*registry.Deps`, then loops `for _, t := range registry.All() {
+  t.RegisterMCP(server, deps) }` before starting the server.
+
+### CLI mode
+
+`jev-mcp`'s binary mode-switches on its first argument: with no arguments,
+or `mcp` as the first argument, it runs the MCP server described above,
+unchanged. Any other first argument instead builds a `cobra` root command
+(`Use: "jev"`) and loops over `registry.All()` calling `t.RegisterCLI(root,
+provider)` for every tool whose `RegisterCLI` is non-nil, where `provider`
+is a *lazy* `func() *registry.Deps` — invoked only from a subcommand's
+actual run path, never during flag parsing or help, so `jev --help` works
+with no credentials configured. This is scaffolding: every tool's
+`RegisterCLI` is `nil` today, so the CLI root command always has zero
+subcommands -- populating `RegisterCLI` per tool is a later pass.
 
 **Adding a tool**: create `internal/tools/<name>/<name>.go` (package
 `<name>`) whose `init()` registers itself — see `internal/tools/check`'s

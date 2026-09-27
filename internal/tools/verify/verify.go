@@ -158,16 +158,26 @@ func NewVerifyHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewVerifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameVerify,
-			Description: "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
-				"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
-				"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
-				"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
-				"verdict.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "verify",
+		MCPName: ToolNameVerify,
+		Description: "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
+			"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
+			"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
+			"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
+			"verdict.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewVerifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameVerify,
+				Description: "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
+					"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
+					"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
+					"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
+					"verdict.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

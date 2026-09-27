@@ -97,16 +97,26 @@ func NewReviewHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewReviewHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameReview,
-			Description: "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
-				"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
-				"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
-				"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
-				"fabricated pass.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "review",
+		MCPName: ToolNameReview,
+		Description: "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
+			"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
+			"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
+			"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
+			"fabricated pass.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewReviewHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameReview,
+				Description: "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
+					"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
+					"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
+					"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
+					"fabricated pass.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

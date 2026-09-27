@@ -157,16 +157,26 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewAskHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameAsk,
-			Description: "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
-				"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
-				"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
-				"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
-				"one key is status=\"invalid_response\", every other key's valid answer is unaffected.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "ask",
+		MCPName: ToolNameAsk,
+		Description: "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
+			"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
+			"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
+			"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
+			"one key is status=\"invalid_response\", every other key's valid answer is unaffected.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewAskHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameAsk,
+				Description: "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
+					"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
+					"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
+					"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
+					"one key is status=\"invalid_response\", every other key's valid answer is unaffected.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

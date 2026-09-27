@@ -153,15 +153,24 @@ func NewScreenHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewScreenHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameScreen,
-			Description: "Screen a piece of text (e.g. from an untrusted external source) for prompt-injection " +
-				"attempts, lack of substantive content, and (optionally) relevance to a stated purpose, using " +
-				"TypeSafe's Jev judgment model. ADVISORY ONLY: this tool never blocks or filters anything " +
-				"itself, it only returns a recommendation (block/review/pass/skip) for the caller to act on.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "screen",
+		MCPName: ToolNameScreen,
+		Description: "Screen a piece of text (e.g. from an untrusted external source) for prompt-injection " +
+			"attempts, lack of substantive content, and (optionally) relevance to a stated purpose, using " +
+			"TypeSafe's Jev judgment model. ADVISORY ONLY: this tool never blocks or filters anything " +
+			"itself, it only returns a recommendation (block/review/pass/skip) for the caller to act on.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewScreenHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameScreen,
+				Description: "Screen a piece of text (e.g. from an untrusted external source) for prompt-injection " +
+					"attempts, lack of substantive content, and (optionally) relevance to a stated purpose, using " +
+					"TypeSafe's Jev judgment model. ADVISORY ONLY: this tool never blocks or filters anything " +
+					"itself, it only returns a recommendation (block/review/pass/skip) for the caller to act on.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

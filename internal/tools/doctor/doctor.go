@@ -122,16 +122,26 @@ func NewDoctorHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewDoctorHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameDoctor,
-			Description: "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
-				"and report the currently active configuration (resolved model, credential source, budget " +
-				"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
-				"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
-				"since that IS this tool's useful result.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "doctor",
+		MCPName: ToolNameDoctor,
+		Description: "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
+			"and report the currently active configuration (resolved model, credential source, budget " +
+			"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
+			"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
+			"since that IS this tool's useful result.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewDoctorHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameDoctor,
+				Description: "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
+					"and report the currently active configuration (resolved model, credential source, budget " +
+					"caps, session spend) -- a combined network + configuration sanity check. Never fails as a " +
+					"tool error: an unreachable endpoint is reported as reachable=false with a descriptive error, " +
+					"since that IS this tool's useful result.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

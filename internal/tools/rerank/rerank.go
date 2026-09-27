@@ -147,15 +147,24 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewRerankHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameRerank,
-			Description: "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
-				"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
-				"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
-				"a missing score as zero (which could badly distort the ordering).",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "rerank",
+		MCPName: ToolNameRerank,
+		Description: "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
+			"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
+			"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
+			"a missing score as zero (which could badly distort the ordering).",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewRerankHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameRerank,
+				Description: "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
+					"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
+					"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
+					"a missing score as zero (which could badly distort the ordering).",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

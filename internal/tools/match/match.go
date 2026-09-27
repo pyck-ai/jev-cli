@@ -152,14 +152,22 @@ func NewMatchHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewMatchHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameMatch,
-			Description: "Find the single best-matching candidate for a query, and whether any candidate " +
-				"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
-				"or missing model answer is reported as status=\"invalid_response\", never a fabricated match.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "match",
+		MCPName: ToolNameMatch,
+		Description: "Find the single best-matching candidate for a query, and whether any candidate " +
+			"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
+			"or missing model answer is reported as status=\"invalid_response\", never a fabricated match.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewMatchHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameMatch,
+				Description: "Find the single best-matching candidate for a query, and whether any candidate " +
+					"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
+					"or missing model answer is reported as status=\"invalid_response\", never a fabricated match.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

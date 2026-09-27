@@ -2,8 +2,19 @@
 // mechanism, modeled directly on Go's database/sql driver pattern (e.g.
 // `import _ "github.com/lib/pq"`): each MCP tool lives in its own package
 // under internal/tools/<name>/, and that package's init() function calls
-// Register to record a Registrar. main.go activates the whole tool set
-// with one blank import per tool package plus a single loop over All().
+// Register to record a Tool. main.go activates the whole tool set with
+// one blank import per tool package plus a single loop over All().
+//
+// # Two run modes, one registration
+//
+// A Tool carries both a RegisterMCP hook (wiring it onto an *mcp.Server,
+// for jev-mcp's default MCP-server run mode) and a RegisterCLI hook
+// (wiring it onto a *cobra.Command, for jev-mcp's CLI run mode --
+// invoked as `jev <name> ...` instead of speaking MCP over stdio). Only
+// RegisterMCP is populated by any tool today: RegisterCLI is nil for
+// every one of the 14 existing tools, and main.go's CLI dispatch path
+// skips any Tool whose RegisterCLI is nil. Populating RegisterCLI per
+// tool is deliberately left to a later pass.
 //
 // # Adding or removing a tool
 //
@@ -32,6 +43,7 @@ package registry
 
 import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/audit"
 	"github.com/pyck-ai/jev-mcp/internal/budget"
@@ -41,7 +53,8 @@ import (
 
 // Deps is the shared application infrastructure every tool handler may
 // need, built once in main.go from real dependencies (or once per test
-// from fakes/httptest servers) and passed to every registered Registrar.
+// from fakes/httptest servers) and passed to every registered Tool's
+// RegisterMCP (and, once populated, RegisterCLI).
 //
 // Field types are copied verbatim from how each dependency was already
 // threaded through the codebase before this package existed (see the
@@ -66,29 +79,65 @@ type Deps struct {
 	Audit  *audit.Logger
 }
 
-// Registrar is called once at server startup for every tool package that
-// registered itself via Register. A Registrar should call mcp.AddTool
-// (possibly more than once, for a package exposing more than one MCP
-// tool) against server, building whatever per-tool handler it needs from
-// deps rather than constructing its own client/config/budget/audit.
-type Registrar func(server *mcp.Server, deps *Deps)
+// DepsProvider lazily builds the shared *Deps, exiting the process on any
+// failure. See Tool.RegisterCLI for why RegisterCLI receives a provider
+// rather than a pre-built *Deps.
+type DepsProvider func() *Deps
 
-// registrars accumulates every Registrar passed to Register, in call
-// order. See the package doc comment ("Concurrency") for why this is safe
-// without a mutex.
-var registrars []Registrar
-
-// Register records r to be invoked later by whatever calls All() (in
-// practice, main() exactly once at startup). Intended to be called only
-// from a tool package's init() function -- see the package doc comment.
-func Register(r Registrar) {
-	registrars = append(registrars, r)
+// Tool is what a tool package's init() passes to Register: everything
+// main.go needs to activate that tool in either of jev-mcp's run modes,
+// without main.go knowing anything about the tool itself.
+type Tool struct {
+	// Name is this tool's CLI subcommand name, e.g. "score" -- bare, no
+	// "jev_" prefix, matching its internal/tools/<name>/ package
+	// directory.
+	Name string
+	// MCPName is this tool's MCP tool name, e.g. "jev_score" -- what
+	// RegisterMCP registers it as via mcp.AddTool, and the key used in
+	// config.Config.ToolModelOverrides and audit.Entry.Tool.
+	MCPName string
+	// Description is this tool's one-paragraph description, shared
+	// verbatim between its MCP tool registration (mcp.Tool.Description,
+	// set inside RegisterMCP) and, once RegisterCLI is populated, its CLI
+	// subcommand help text.
+	Description string
+	// RegisterMCP wires this tool onto server as an MCP tool. It should
+	// call mcp.AddTool (possibly more than once, for a tool package
+	// exposing more than one MCP tool) against server, building whatever
+	// per-tool handler it needs from deps rather than constructing its
+	// own client/config/budget/audit. Called once per tool, in
+	// registration order, by main.go's MCP-server run mode.
+	RegisterMCP func(server *mcp.Server, deps *Deps)
+	// RegisterCLI wires this tool onto root as a CLI subcommand. nil for
+	// a tool that has no CLI subcommand yet -- main.go's CLI run mode
+	// skips any Tool whose RegisterCLI is nil (true of every one of the
+	// 14 tools registered today; see the package doc comment).
+	//
+	// deps is a LAZY provider, not a built *Deps: it is invoked only when
+	// the subcommand actually runs, never during cobra's flag parsing or
+	// help paths, so `jev --help` (and cobra's own error messages) work
+	// with no OpenRouter credentials, config, or audit log present. The
+	// provider itself exits the process on failure (see main.go's
+	// buildDeps), so a subcommand's RunE can treat its result as ready.
+	RegisterCLI func(root *cobra.Command, deps DepsProvider)
 }
 
-// All returns every Registrar recorded so far via Register, in
-// registration order. Because Register is only ever called from package
-// init() functions, that order is Go's own package initialization order
-// for whichever set of tool packages main.go blank-imports.
-func All() []Registrar {
-	return registrars
+// tools accumulates every Tool passed to Register, in call order. See the
+// package doc comment ("Concurrency") for why this is safe without a
+// mutex.
+var tools []Tool
+
+// Register records t to be invoked later by whatever calls All() (in
+// practice, main() exactly once at startup). Intended to be called only
+// from a tool package's init() function -- see the package doc comment.
+func Register(t Tool) {
+	tools = append(tools, t)
+}
+
+// All returns every Tool recorded so far via Register, in registration
+// order. Because Register is only ever called from package init()
+// functions, that order is Go's own package initialization order for
+// whichever set of tool packages main.go blank-imports.
+func All() []Tool {
+	return tools
 }

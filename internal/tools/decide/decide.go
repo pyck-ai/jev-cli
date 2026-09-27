@@ -207,16 +207,26 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewDecideHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameDecide,
-			Description: "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
-				"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
-				"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
-				"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
-				"answer=\"invalid_response\" (a requirement check), never fabricated.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "decide",
+		MCPName: ToolNameDecide,
+		Description: "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
+			"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
+			"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
+			"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
+			"answer=\"invalid_response\" (a requirement check), never fabricated.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewDecideHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameDecide,
+				Description: "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
+					"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
+					"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
+					"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
+					"answer=\"invalid_response\" (a requirement check), never fabricated.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

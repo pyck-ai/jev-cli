@@ -171,15 +171,24 @@ func NewCompareHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewCompareHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameCompare,
-			Description: "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
-				"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
-				"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
-				"decision=\"review\", never a fabricated relation.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "compare",
+		MCPName: ToolNameCompare,
+		Description: "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
+			"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
+			"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
+			"decision=\"review\", never a fabricated relation.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewCompareHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameCompare,
+				Description: "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
+					"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
+					"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
+					"decision=\"review\", never a fabricated relation.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

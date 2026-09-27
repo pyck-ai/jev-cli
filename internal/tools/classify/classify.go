@@ -150,15 +150,24 @@ func NewClassifyHandler(client *openrouter.Client, cfg config.Config, tracker *b
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewClassifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameClassify,
-			Description: "Classify each of a list of items into exactly one of a fixed set of classes, using " +
-				"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
-				"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
-				"classification.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "classify",
+		MCPName: ToolNameClassify,
+		Description: "Classify each of a list of items into exactly one of a fixed set of classes, using " +
+			"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
+			"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
+			"classification.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewClassifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameClassify,
+				Description: "Classify each of a list of items into exactly one of a fixed set of classes, using " +
+					"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
+					"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
+					"classification.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

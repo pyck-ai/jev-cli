@@ -5,11 +5,12 @@
 //
 // This package is a self-registering plugin (see internal/registry's
 // package doc comment for the overall mechanism): its init() function
-// registers a registry.Registrar that wires jev_score onto whatever
-// *mcp.Server main.go passes it at startup. main.go activates it with a
-// single blank import, `_ "github.com/pyck-ai/jev-mcp/internal/tools/score"`
-// -- deleting this directory and that one line is sufficient to remove the
-// tool entirely; no other file needs to change.
+// registers a registry.Tool whose RegisterMCP wires jev_score onto
+// whatever *mcp.Server main.go passes it at startup. main.go activates it
+// with a single blank import,
+// `_ "github.com/pyck-ai/jev-mcp/internal/tools/score"` -- deleting this
+// directory and that one line is sufficient to remove the tool entirely;
+// no other file needs to change.
 //
 // This package is a structural move of what was previously
 // internal/tools/jev_score.go (package tools, the sole tool at the time):
@@ -138,17 +139,28 @@ func NewScoreHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 // this package's doc comment and internal/registry's for the full
 // mechanism.
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewScoreHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameScore,
-			Description: "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
-				"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
-				"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
-				"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
-				"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
-				"a fabricated score.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "score",
+		MCPName: ToolNameScore,
+		Description: "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
+			"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
+			"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
+			"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
+			"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
+			"a fabricated score.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewScoreHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameScore,
+				Description: "Judge a single piece of text/data against a numeric rubric using TypeSafe's Jev " +
+					"judgment model (via OpenRouter's SystemOne API). Returns a calibrated probability " +
+					"distribution over every integer level in [scale_min, scale_max], not just a bare number. " +
+					"Fails closed: always check `status` before trusting `score`/`confidence`/`probabilities` -- " +
+					"a malformed or missing model answer is reported as status=\"invalid_response\" rather than " +
+					"a fabricated score.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 

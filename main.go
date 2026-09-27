@@ -10,6 +10,13 @@
 // internal/tools/ plus one new blank-import line here; removing a tool =
 // delete that package plus its blank-import line. No other code in this
 // file changes either way.
+//
+// This binary mode-switches on its first argument (see main): with no
+// arguments, or "mcp" as the first argument, it runs as an MCP server
+// (runMCPServer, unchanged from before this file supported any other
+// mode). Any other first argument runs it as a CLI instead (runCLI) --
+// scaffolding for now, since every tool's registry.Tool.RegisterCLI is
+// nil today; a later pass will populate it per tool.
 package main
 
 import (
@@ -18,6 +25,7 @@ import (
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/audit"
 	"github.com/pyck-ai/jev-mcp/internal/budget"
@@ -73,17 +81,117 @@ func main() {
 		fmt.Fprintf(os.Stderr, "jev-mcp: warning: could not set JSONSCHEMAGODEBUG: %v\n", err)
 	}
 
-	// The API key is resolved here (env var, falling back to opencode's own
-	// stored credentials -- see internal/credentials) and passed around
-	// out-of-band from *config.Config: per the project's security
-	// requirements it must never be read from the jev-mcp config file,
-	// logged, or included in any error message, from either source. A key
-	// is required at startup -- fail fast with a clear error rather than
-	// deferring the failure to the first tool call.
+	// Mode dispatch. With no arguments, or "mcp" as the first argument,
+	// run the MCP server exactly as this binary always has
+	// (runMCPServer). Any other first argument switches to CLI mode
+	// instead (runCLI): a cobra root command is built, and every
+	// registered tool's RegisterCLI hook -- see internal/registry's
+	// package doc comment -- gets a chance to add itself as a
+	// subcommand. This is scaffolding only: every tool's RegisterCLI is
+	// nil today, so the CLI root command currently has zero subcommands;
+	// a later pass will populate RegisterCLI per tool.
+	if len(os.Args) > 1 && os.Args[1] != "mcp" {
+		runCLI()
+		return
+	}
+	runMCPServer()
+}
+
+// runMCPServer is jev-mcp's default run mode: build the shared
+// dependencies, register every tool as an MCP tool, and serve MCP over
+// stdio until the client disconnects or an error occurs. Unchanged from
+// before this binary supported any other mode, except that its
+// tool-registration loop (inside newServer) now invokes each
+// registry.Tool's RegisterMCP field instead of calling a bare
+// registry.Registrar function value -- that type no longer exists, see
+// internal/registry's package doc comment.
+func runMCPServer() {
+	deps := buildDeps(1)
+
+	server := newServer(deps)
+
+	// Unlike before this file supported more than one tool, the startup
+	// log line can no longer name a single tool's resolved model (each
+	// registered tool may resolve a different model via
+	// cfg.ToolModelOverrides) -- it reports the tool count and the
+	// fallback default_model instead.
+	fmt.Fprintf(os.Stderr, "jev-mcp: starting (tools=%d, default_model=%s, config=%s, audit_log=%s)\n",
+		len(registry.All()), deps.Config.DefaultModel, mustConfigPath(), mustAuditPath())
+
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		fmt.Fprintf(os.Stderr, "jev-mcp: server exited with error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// runCLI is jev-mcp's CLI run mode: build a cobra root command and let
+// every registered tool's RegisterCLI hook add itself as a subcommand,
+// skipping the tools whose RegisterCLI is nil (all 14 of them, today),
+// then execute it against the process's actual arguments (cobra reads
+// os.Args itself here -- root.Execute is never given an explicit
+// SetArgs). This is scaffolding for a later pass that will actually
+// populate RegisterCLI per tool: today it always yields a root command
+// with zero subcommands.
+//
+// The deps handed to RegisterCLI are a LAZY provider, deliberately not a
+// built *Deps: building them resolves the OpenRouter credential, the
+// config file, and the audit log, and fail-fasts the process if any is
+// missing. Deferring that until a subcommand actually runs (the provider
+// is only invoked from a command's RunE, never during flag parsing) is
+// what lets `jev --help`, `jev score --help`, and cobra's unknown-flag
+// errors work on a machine with no credentials configured at all.
+func runCLI() {
+	// NoArgs + a help-printing RunE make the root behave sanely at this
+	// intermediate stage (no subcommands registered yet): `jev --help`
+	// prints help and exits 0, and an unrecognized first argument (e.g.
+	// `jev score` before score's RegisterCLI exists) produces cobra's
+	// "unknown command" error instead of cobra v1.10's silent no-op for
+	// a non-runnable, childless root (verified empirically against
+	// v1.10.2: without this, both cases print nothing and exit 0).
+	root := &cobra.Command{
+		Use:  "jev",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	for _, t := range registry.All() {
+		if t.RegisterCLI != nil {
+			t.RegisterCLI(root, func() *registry.Deps { return buildDeps(3) })
+		}
+	}
+
+	// Exit 3 on any Execute error (unknown command, bad flags): the CLI
+	// exit-code scheme reserves 3 for hard errors, 0/1/2 for verdict
+	// outcomes.
+	if err := root.Execute(); err != nil {
+		os.Exit(3)
+	}
+}
+
+// buildDeps resolves the API key and config and builds the shared
+// *registry.Deps every tool's RegisterMCP/RegisterCLI needs -- identically
+// for both of jev-mcp's run modes. This is exactly the construction
+// sequence this file always had before it supported any mode but the MCP
+// server, factored out so runCLI can share it rather than duplicating it.
+//
+// The API key is resolved here (env var, falling back to opencode's own
+// stored credentials -- see internal/credentials) and passed around
+// out-of-band from *config.Config: per the project's security
+// requirements it must never be read from the jev-mcp config file,
+// logged, or included in any error message, from either source. A key is
+// required at startup -- fail fast with a clear error rather than
+// deferring the failure to the first tool call.
+//
+// exitCode is the process exit code used on failure: 1 for the MCP
+// server's own startup (historical behavior), 3 for CLI invocations
+// (hard-error code in the CLI's exit-code scheme, reserving 0/1/2 for
+// verdict outcomes).
+func buildDeps(exitCode int) *registry.Deps {
 	cred, ok := credentials.Resolve()
 	if !ok {
 		fmt.Fprintf(os.Stderr, "jev-mcp: no OpenRouter API key available: set %s, or configure an \"openrouter\" credential of type \"api\" in opencode's auth store; refusing to start.\n", credentials.EnvVar)
-		os.Exit(1)
+		os.Exit(exitCode)
 	}
 	apiKey := cred.Key
 	fmt.Fprintf(os.Stderr, "jev-mcp: using OpenRouter key from %s\n", cred.Source)
@@ -91,13 +199,13 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "jev-mcp: loading config: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitCode)
 	}
 
 	auditPath, err := audit.DefaultPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "jev-mcp: resolving audit log path: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitCode)
 	}
 	auditLog := audit.NewLogger(auditPath)
 
@@ -109,43 +217,28 @@ func main() {
 
 	spend := budget.NewTracker(cfg.Budget.MaxUSDPerSession)
 
-	deps := &registry.Deps{
+	return &registry.Deps{
 		Client: client,
 		Config: cfg,
 		Budget: spend,
 		Audit:  auditLog,
 	}
-
-	server := newServer(deps)
-
-	// Unlike before this file supported more than one tool, the startup
-	// log line can no longer name a single tool's resolved model (each
-	// registered tool may resolve a different model via
-	// cfg.ToolModelOverrides) -- it reports the tool count and the
-	// fallback default_model instead.
-	fmt.Fprintf(os.Stderr, "jev-mcp: starting (tools=%d, default_model=%s, config=%s, audit_log=%s)\n",
-		len(registry.All()), cfg.DefaultModel, mustConfigPath(), auditPath)
-
-	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "jev-mcp: server exited with error: %v\n", err)
-		os.Exit(1)
-	}
 }
 
 // newServer builds the MCP server and registers every self-registered tool
-// (see internal/registry) against it. Split out from main() so tests can
-// construct a server wired to a *registry.Deps pointed at a fake
-// OpenRouter endpoint, and drive it through a real MCP client/server
-// session (see main_test.go), without going through os.Exit-prone startup
-// code or touching the real network.
+// (see internal/registry) against it via RegisterMCP. Split out from
+// runMCPServer so tests can construct a server wired to a *registry.Deps
+// pointed at a fake OpenRouter endpoint, and drive it through a real MCP
+// client/server session (see main_test.go), without going through
+// os.Exit-prone startup code or touching the real network.
 func newServer(deps *registry.Deps) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "jev-mcp",
 		Version: serverVersion,
 	}, nil)
 
-	for _, register := range registry.All() {
-		register(server, deps)
+	for _, t := range registry.All() {
+		t.RegisterMCP(server, deps)
 	}
 
 	return server
@@ -158,6 +251,18 @@ func newServer(deps *registry.Deps) *mcp.Server {
 // a cosmetic log line.
 func mustConfigPath() string {
 	p, err := config.Path()
+	if err != nil {
+		return "(unresolved)"
+	}
+	return p
+}
+
+// mustAuditPath mirrors mustConfigPath, for the same reason: it's used
+// only for the startup log line, after buildDeps has already resolved
+// audit.DefaultPath() successfully once, so an error here would only
+// indicate the environment changed between the two calls.
+func mustAuditPath() string {
+	p, err := audit.DefaultPath()
 	if err != nil {
 		return "(unresolved)"
 	}

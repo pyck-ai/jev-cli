@@ -196,16 +196,26 @@ func NewExtractHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
-	registry.Register(func(server *mcp.Server, deps *registry.Deps) {
-		h := NewExtractHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
-		mcp.AddTool(server, &mcp.Tool{
-			Name: ToolNameExtract,
-			Description: "Extract named fields from a document: for each field, a regex finds candidate " +
-				"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
-				"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
-				"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
-				"answer is reported as status=\"invalid_response\", never a fabricated value.",
-		}, h.Handle)
+	registry.Register(registry.Tool{
+		Name:    "extract",
+		MCPName: ToolNameExtract,
+		Description: "Extract named fields from a document: for each field, a regex finds candidate " +
+			"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
+			"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
+			"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
+			"answer is reported as status=\"invalid_response\", never a fabricated value.",
+		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
+			h := NewExtractHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
+			mcp.AddTool(server, &mcp.Tool{
+				Name: ToolNameExtract,
+				Description: "Extract named fields from a document: for each field, a regex finds candidate " +
+					"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
+					"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
+					"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
+					"answer is reported as status=\"invalid_response\", never a fabricated value.",
+			}, h.Handle)
+		},
+		RegisterCLI: nil,
 	})
 }
 
