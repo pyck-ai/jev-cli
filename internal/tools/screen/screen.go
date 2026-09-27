@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -153,33 +154,47 @@ func NewScreenHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
+	description := "Screen a piece of text (e.g. from an untrusted external source) for prompt-injection " +
+		"attempts, lack of substantive content, and (optionally) relevance to a stated purpose, using " +
+		"TypeSafe's Jev judgment model. ADVISORY ONLY: this tool never blocks or filters anything " +
+		"itself, it only returns a recommendation (block/review/pass/skip) for the caller to act on."
 	registry.Register(registry.Tool{
-		Name:    "screen",
-		MCPName: ToolNameScreen,
-		Description: "Screen a piece of text (e.g. from an untrusted external source) for prompt-injection " +
-			"attempts, lack of substantive content, and (optionally) relevance to a stated purpose, using " +
-			"TypeSafe's Jev judgment model. ADVISORY ONLY: this tool never blocks or filters anything " +
-			"itself, it only returns a recommendation (block/review/pass/skip) for the caller to act on.",
+		Name:        "screen",
+		MCPName:     ToolNameScreen,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewScreenHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameScreen,
-				Description: "Screen a piece of text (e.g. from an untrusted external source) for prompt-injection " +
-					"attempts, lack of substantive content, and (optionally) relevance to a stated purpose, using " +
-					"TypeSafe's Jev judgment model. ADVISORY ONLY: this tool never blocks or filters anything " +
-					"itself, it only returns a recommendation (block/review/pass/skip) for the caller to act on.",
+				Name:        ToolNameScreen,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[ScreenInput, ScreenOutput].
+// Handle implements mcp.ToolHandlerFor[ScreenInput, ScreenOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *ScreenHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in ScreenInput) (*mcp.CallToolResult, ScreenOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, ScreenOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_screen's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *ScreenHandler) run(ctx context.Context, in ScreenInput) (ScreenOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, ScreenOutput{}, err
+		return ScreenOutput{}, err
 	}
 	blockAt := answers.ResolveThreshold(in.BlockAt, defaultBlockAt)
 	reviewAt := answers.ResolveThreshold(in.ReviewAt, defaultReviewAt)
@@ -193,7 +208,7 @@ func (h *ScreenHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in S
 			Tool: ToolNameScreen, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: err.Error(),
 		})
-		return nil, ScreenOutput{}, err
+		return ScreenOutput{}, err
 	}
 
 	questions := map[string]openrouter.Question{
@@ -235,7 +250,7 @@ func (h *ScreenHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in S
 			Tool: ToolNameScreen, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 		})
-		return nil, ScreenOutput{}, fmt.Errorf("jev_screen: %w", callErr)
+		return ScreenOutput{}, fmt.Errorf("jev_screen: %w", callErr)
 	}
 
 	out := ScreenOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -292,7 +307,7 @@ func (h *ScreenHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in S
 		ItemCount: itemCount, InvalidCount: len(invalid),
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 // parseNoul looks up key in answersMap and parses it as a "noul" answer,

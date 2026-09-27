@@ -57,6 +57,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -147,33 +148,47 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
+	description := "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
+		"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
+		"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
+		"a missing score as zero (which could badly distort the ordering)."
 	registry.Register(registry.Tool{
-		Name:    "rerank",
-		MCPName: ToolNameRerank,
-		Description: "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
-			"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
-			"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
-			"a missing score as zero (which could badly distort the ordering).",
+		Name:        "rerank",
+		MCPName:     ToolNameRerank,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewRerankHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameRerank,
-				Description: "Rank a list of candidates by relevance to a query using TypeSafe's Jev judgment " +
-					"model. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
-					"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
-					"a missing score as zero (which could badly distort the ordering).",
+				Name:        ToolNameRerank,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[RerankInput, RerankOutput].
+// Handle implements mcp.ToolHandlerFor[RerankInput, RerankOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *RerankHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in RerankInput) (*mcp.CallToolResult, RerankOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, RerankOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_rerank's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *RerankHandler) run(ctx context.Context, in RerankInput) (RerankOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, RerankOutput{}, err
+		return RerankOutput{}, err
 	}
 
 	inputHash := audit.HashValue(in)
@@ -185,7 +200,7 @@ func (h *RerankHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: len(in.Candidates),
 		})
-		return nil, RerankOutput{}, refuseErr
+		return RerankOutput{}, refuseErr
 	}
 
 	state := map[string]any{"query": in.Query, "candidates": in.Candidates}
@@ -213,7 +228,7 @@ func (h *RerankHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Candidates),
 		})
-		return nil, RerankOutput{}, fmt.Errorf("jev_rerank: %w", callErr)
+		return RerankOutput{}, fmt.Errorf("jev_rerank: %w", callErr)
 	}
 
 	out := RerankOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -274,7 +289,7 @@ func (h *RerankHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 		ItemCount: len(in.Candidates), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func candKey(i int) string { return "cand" + strconv.Itoa(i) }

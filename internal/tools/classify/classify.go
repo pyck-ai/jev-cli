@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -150,33 +151,47 @@ func NewClassifyHandler(client *openrouter.Client, cfg config.Config, tracker *b
 }
 
 func init() {
+	description := "Classify each of a list of items into exactly one of a fixed set of classes, using " +
+		"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
+		"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
+		"classification."
 	registry.Register(registry.Tool{
-		Name:    "classify",
-		MCPName: ToolNameClassify,
-		Description: "Classify each of a list of items into exactly one of a fixed set of classes, using " +
-			"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
-			"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
-			"classification.",
+		Name:        "classify",
+		MCPName:     ToolNameClassify,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewClassifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameClassify,
-				Description: "Classify each of a list of items into exactly one of a fixed set of classes, using " +
-					"TypeSafe's Jev judgment model. Fails closed per item: a malformed or missing answer is " +
-					"reported as status=\"invalid_response\" with decision=\"review\", never a fabricated " +
-					"classification.",
+				Name:        ToolNameClassify,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[ClassifyInput, ClassifyOutput].
+// Handle implements mcp.ToolHandlerFor[ClassifyInput, ClassifyOutput]: a
+// thin adapter over run (the transport-agnostic core both the MCP
+// handler and the CLI subcommand share).
 func (h *ClassifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in ClassifyInput) (*mcp.CallToolResult, ClassifyOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, ClassifyOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_classify's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *ClassifyHandler) run(ctx context.Context, in ClassifyInput) (ClassifyOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, ClassifyOutput{}, err
+		return ClassifyOutput{}, err
 	}
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, defaultAutoAccept)
 	minimumMargin := answers.ResolveThreshold(in.MinimumMargin, defaultMinimumMargin)
@@ -190,7 +205,7 @@ func (h *ClassifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: len(in.Items),
 		})
-		return nil, ClassifyOutput{}, refuseErr
+		return ClassifyOutput{}, refuseErr
 	}
 
 	classCriteria := make(map[string]string, len(in.Classes))
@@ -222,7 +237,7 @@ func (h *ClassifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Items),
 		})
-		return nil, ClassifyOutput{}, fmt.Errorf("jev_classify: %w", callErr)
+		return ClassifyOutput{}, fmt.Errorf("jev_classify: %w", callErr)
 	}
 
 	out := ClassifyOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -281,7 +296,7 @@ func (h *ClassifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in
 		ItemCount: len(in.Items), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func itemKey(i int) string { return "item" + strconv.Itoa(i) }

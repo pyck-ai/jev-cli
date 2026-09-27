@@ -20,7 +20,8 @@ Every tool is a self-registering plugin, modeled directly on Go's
   `Client`/`Config`/`Budget`/`Audit` infrastructure) and calls
   `mcp.AddTool` against whatever `*mcp.Server` it's given, and a
   `RegisterCLI` closure that does the equivalent for a `*cobra.Command`
-  (`nil` for every tool today -- see [CLI mode](#cli-mode) below).
+  (every one of the 14 tools populates both today -- see
+  [CLI mode](#cli-mode) below).
 - `main.go` activates the whole tool set with one blank import per tool
   package (`_ "github.com/pyck-ai/jev-mcp/internal/tools/<name>"`), builds
   one `*registry.Deps`, then loops `for _, t := range registry.All() {
@@ -32,12 +33,52 @@ Every tool is a self-registering plugin, modeled directly on Go's
 or `mcp` as the first argument, it runs the MCP server described above,
 unchanged. Any other first argument instead builds a `cobra` root command
 (`Use: "jev"`) and loops over `registry.All()` calling `t.RegisterCLI(root,
-provider)` for every tool whose `RegisterCLI` is non-nil, where `provider`
-is a *lazy* `func() *registry.Deps` — invoked only from a subcommand's
-actual run path, never during flag parsing or help, so `jev --help` works
-with no credentials configured. This is scaffolding: every tool's
-`RegisterCLI` is `nil` today, so the CLI root command always has zero
-subcommands -- populating `RegisterCLI` per tool is a later pass.
+provider)` for every tool, where `provider` is a *lazy* `func()
+*registry.Deps` — invoked only from a subcommand's actual run path, never
+during flag parsing or help, so `jev --help` and `jev <tool> --help` work
+with no credentials configured at all.
+
+Every tool's `RegisterCLI` follows the same shape (see
+`internal/tools/score/cli.go` for the reference implementation any new
+tool's `cli.go` should copy):
+
+- **Input**: `internal/cliinput.Bind[Input](cmd)` registers one flag per
+  `Input` field (JSON tag, snake_case → kebab-case), plus the shared
+  `--json`/`-j` flag for supplying the whole input as one JSON object (or
+  reading it from stdin via `-j -`). A structured field (slice, map,
+  nested struct, or a `string`-or-JSON field like `jev_ask`'s `state`)
+  takes its flag value as JSON text, not a bare literal — see
+  [Tool reference](tool-reference.md) for which fields need this per tool.
+  Required-field validation is NOT duplicated in `cliinput`: each tool's
+  own `run` (the same core the MCP handler calls) rejects missing/invalid
+  input with its own precise error message, under either input path.
+- **Core logic**: the CLI adapter calls the exact same `run(ctx, in)
+  (Output, error)` the MCP handler calls — see
+  [Two run modes, one registration](#two-run-modes-one-registration)
+  below.
+- **Output**: `internal/cliformat.Emit` renders `Output` as aligned
+  human-readable text by default, or `json.MarshalIndent`-equivalent JSON
+  with `-o json` — see that package's doc comment for the exact text
+  layout (aligned `field: value` lines, sorted map entries, a
+  `text/tabwriter` table for slice-of-struct fields, recursive rendering
+  for nested structs/maps so no field ever falls through to Go's raw
+  `%v` struct dump, which would risk printing an unexported field or a
+  live pointer address).
+- **Exit code**: a small per-tool `exitCode(Output) int` maps that
+  specific tool's verdict field(s) onto the CLI's shared four-value
+  scheme — see [Exit codes](development.md#exit-codes).
+
+### Two run modes, one registration
+
+Every tool's handler type has a `run(ctx context.Context, in Input)
+(Output, error)` method: everything from input validation through the
+SystemOne call, budget accounting, and audit logging, independent of the
+caller. `Handle` (the MCP-shaped method `mcp.AddTool` is given) and the
+CLI adapter's `RunE` are both thin wrappers around this same `run` — the
+MCP-vs-CLI split happens only in how the input arrives and the output
+leaves, never in the tool's own logic. This is what keeps `RegisterMCP`
+and `RegisterCLI` from drifting apart: there is exactly one place either
+one's tests can catch a behavior regression.
 
 **Adding a tool**: create `internal/tools/<name>/<name>.go` (package
 `<name>`) whose `init()` registers itself — see `internal/tools/check`'s

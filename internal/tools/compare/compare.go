@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -171,33 +172,47 @@ func NewCompareHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
+	description := "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
+		"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
+		"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
+		"decision=\"review\", never a fabricated relation."
 	registry.Register(registry.Tool{
-		Name:    "compare",
-		MCPName: ToolNameCompare,
-		Description: "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
-			"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
-			"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
-			"decision=\"review\", never a fabricated relation.",
+		Name:        "compare",
+		MCPName:     ToolNameCompare,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewCompareHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameCompare,
-				Description: "Compare two passages' factual relation (same_fact/contradicts/different_facts), " +
-					"overall and optionally per specific aspect, using TypeSafe's Jev judgment model. Fails " +
-					"closed: a malformed or missing answer is reported as status=\"invalid_response\" with " +
-					"decision=\"review\", never a fabricated relation.",
+				Name:        ToolNameCompare,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[CompareInput, CompareOutput].
+// Handle implements mcp.ToolHandlerFor[CompareInput, CompareOutput]: a
+// thin adapter over run (the transport-agnostic core both the MCP
+// handler and the CLI subcommand share).
 func (h *CompareHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in CompareInput) (*mcp.CallToolResult, CompareOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, CompareOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_compare's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *CompareHandler) run(ctx context.Context, in CompareInput) (CompareOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, CompareOutput{}, err
+		return CompareOutput{}, err
 	}
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, defaultAutoAccept)
 
@@ -215,7 +230,7 @@ func (h *CompareHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: 1 + len(in.Aspects),
 		})
-		return nil, CompareOutput{}, refuseErr
+		return CompareOutput{}, refuseErr
 	}
 
 	questions := map[string]openrouter.Question{
@@ -246,7 +261,7 @@ func (h *CompareHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: 1 + len(in.Aspects),
 		})
-		return nil, CompareOutput{}, fmt.Errorf("jev_compare: %w", callErr)
+		return CompareOutput{}, fmt.Errorf("jev_compare: %w", callErr)
 	}
 
 	out := CompareOutput{Model: resp.Model, LatencyMs: latencyMs, Truncated: truncated}
@@ -299,7 +314,7 @@ func (h *CompareHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 		ItemCount: 1 + len(in.Aspects), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func aspectKey(i int) string { return "aspect" + strconv.Itoa(i) }

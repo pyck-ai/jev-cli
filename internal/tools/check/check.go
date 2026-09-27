@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -142,35 +143,48 @@ func NewCheckHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
+	description := "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
+		"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
+		"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
+		"closed per proposition: a malformed or missing answer is reported as " +
+		"status=\"invalid_response\" with action=\"review\", never a fabricated verdict."
 	registry.Register(registry.Tool{
-		Name:    "check",
-		MCPName: ToolNameCheck,
-		Description: "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
-			"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
-			"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
-			"closed per proposition: a malformed or missing answer is reported as " +
-			"status=\"invalid_response\" with action=\"review\", never a fabricated verdict.",
+		Name:        "check",
+		MCPName:     ToolNameCheck,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewCheckHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameCheck,
-				Description: "Batch-check a list of independent propositions for truth using TypeSafe's Jev " +
-					"judgment model (via OpenRouter's SystemOne API's \"noul\" question type). Each proposition " +
-					"gets its own probability, likely/unlikely/uncertain label, and auto/review action. Fails " +
-					"closed per proposition: a malformed or missing answer is reported as " +
-					"status=\"invalid_response\" with action=\"review\", never a fabricated verdict.",
+				Name:        ToolNameCheck,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[CheckInput, CheckOutput].
+// Handle implements mcp.ToolHandlerFor[CheckInput, CheckOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *CheckHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in CheckInput) (*mcp.CallToolResult, CheckOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, CheckOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_check's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *CheckHandler) run(ctx context.Context, in CheckInput) (CheckOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, CheckOutput{}, err
+		return CheckOutput{}, err
 	}
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, defaultAutoAccept)
 
@@ -183,7 +197,7 @@ func (h *CheckHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ch
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: err.Error(),
 			ItemCount: len(in.Propositions),
 		})
-		return nil, CheckOutput{}, err
+		return CheckOutput{}, err
 	}
 
 	questions := make(map[string]openrouter.Question, len(in.Propositions))
@@ -207,7 +221,7 @@ func (h *CheckHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ch
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Propositions),
 		})
-		return nil, CheckOutput{}, fmt.Errorf("jev_check: %w", callErr)
+		return CheckOutput{}, fmt.Errorf("jev_check: %w", callErr)
 	}
 
 	out := CheckOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -261,7 +275,7 @@ func (h *CheckHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ch
 		ItemCount: len(in.Propositions), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func questionKey(i int) string {

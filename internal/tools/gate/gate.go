@@ -56,6 +56,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -189,35 +190,48 @@ func NewGateHandler(client *openrouter.Client, cfg config.Config, tracker *budge
 }
 
 func init() {
+	description := "jev_review plus claim verification against supplied evidence (evidence-only, never " +
+		"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
+		"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
+		"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
+		"closed throughout, never a fabricated verdict."
 	registry.Register(registry.Tool{
-		Name:    "gate",
-		MCPName: ToolNameGate,
-		Description: "jev_review plus claim verification against supplied evidence (evidence-only, never " +
-			"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
-			"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
-			"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
-			"closed throughout, never a fabricated verdict.",
+		Name:        "gate",
+		MCPName:     ToolNameGate,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewGateHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameGate,
-				Description: "jev_review plus claim verification against supplied evidence (evidence-only, never " +
-					"against request/diff/tests), combined into one stricter gate decision using TypeSafe's Jev " +
-					"judgment model: action=\"auto\" only if the review half is auto AND every claim verifies auto; " +
-					"a confidently contradicted claim forces action=\"escalate\" regardless of anything else. Fails " +
-					"closed throughout, never a fabricated verdict.",
+				Name:        ToolNameGate,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[GateInput, GateOutput].
+// Handle implements mcp.ToolHandlerFor[GateInput, GateOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *GateHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in GateInput) (*mcp.CallToolResult, GateOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, GateOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_gate's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *GateHandler) run(ctx context.Context, in GateInput) (GateOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, GateOutput{}, err
+		return GateOutput{}, err
 	}
 
 	prepared, truncated := reviewcore.Prepare(in.Request, in.Diff, in.Tests)
@@ -236,7 +250,7 @@ func (h *GateHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Gat
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: itemCount,
 		})
-		return nil, GateOutput{}, refuseErr
+		return GateOutput{}, refuseErr
 	}
 
 	questions := reviewcore.Questions()
@@ -266,7 +280,7 @@ func (h *GateHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Gat
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: itemCount,
 		})
-		return nil, GateOutput{}, fmt.Errorf("jev_gate: %w", callErr)
+		return GateOutput{}, fmt.Errorf("jev_gate: %w", callErr)
 	}
 
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, reviewcore.DefaultAutoAccept)
@@ -340,7 +354,7 @@ func (h *GateHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Gat
 		ItemCount: itemCount, InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func claimKey(i int) string { return "claim" + strconv.Itoa(i) }

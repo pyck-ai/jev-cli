@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -97,35 +98,48 @@ func NewReviewHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
+	description := "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
+		"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
+		"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
+		"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
+		"fabricated pass."
 	registry.Register(registry.Tool{
-		Name:    "review",
-		MCPName: ToolNameReview,
-		Description: "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
-			"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
-			"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
-			"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
-			"fabricated pass.",
+		Name:        "review",
+		MCPName:     ToolNameReview,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewReviewHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameReview,
-				Description: "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
-					"test_gap, blast_radius) plus a safe-to-apply signal, using TypeSafe's Jev judgment model, and " +
-					"recommend action=\"auto\"/\"review\"/\"escalate\". Fails closed: a malformed or missing rubric " +
-					"answer counts as the worst-case outcome for that rubric and forces escalate, never a " +
-					"fabricated pass.",
+				Name:        ToolNameReview,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[ReviewInput, ReviewOutput].
+// Handle implements mcp.ToolHandlerFor[ReviewInput, ReviewOutput]: a
+// thin adapter over run (the transport-agnostic core both the MCP
+// handler and the CLI subcommand share).
 func (h *ReviewHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in ReviewInput) (*mcp.CallToolResult, ReviewOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, ReviewOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_review's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *ReviewHandler) run(ctx context.Context, in ReviewInput) (ReviewOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, ReviewOutput{}, err
+		return ReviewOutput{}, err
 	}
 
 	prepared, truncated := reviewcore.Prepare(in.Request, in.Diff, in.Tests)
@@ -139,7 +153,7 @@ func (h *ReviewHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: 5,
 		})
-		return nil, ReviewOutput{}, refuseErr
+		return ReviewOutput{}, refuseErr
 	}
 
 	resp, callErr := h.client.Ask(ctx, h.model, reviewcore.Questions(), state, h.timeout)
@@ -151,7 +165,7 @@ func (h *ReviewHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: 5,
 		})
-		return nil, ReviewOutput{}, fmt.Errorf("jev_review: %w", callErr)
+		return ReviewOutput{}, fmt.Errorf("jev_review: %w", callErr)
 	}
 
 	assessment := reviewcore.ParseAssessment(resp.Answers, truncated, in.AutoAccept, in.CompositeFloor, in.Weights)
@@ -181,7 +195,7 @@ func (h *ReviewHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 		ItemCount: assessment.ItemCount(), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 // validateInput rejects obviously-unusable input before spending any

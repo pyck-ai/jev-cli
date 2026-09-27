@@ -246,7 +246,11 @@ func TestNewCLIRoot_RegistersOnlyMigratedTools(t *testing.T) {
 	}
 	root := newCLIRoot(provider)
 
-	want := []string{"doctor", "score"}
+	want := []string{
+		"ask", "check", "classify", "compare", "decide",
+		"doctor", "extract", "gate", "match", "rerank",
+		"review", "score", "screen", "verify",
+	}
 	var got []string
 	for _, c := range root.Commands() {
 		if c.Name() == "help" || c.Name() == "completion" {

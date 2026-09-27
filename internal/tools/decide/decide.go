@@ -61,6 +61,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -207,35 +208,48 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
+	description := "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
+		"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
+		"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
+		"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
+		"answer=\"invalid_response\" (a requirement check), never fabricated."
 	registry.Register(registry.Tool{
-		Name:    "decide",
-		MCPName: ToolNameDecide,
-		Description: "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
-			"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
-			"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
-			"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
-			"answer=\"invalid_response\" (a requirement check), never fabricated.",
+		Name:        "decide",
+		MCPName:     ToolNameDecide,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewDecideHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameDecide,
-				Description: "Recommend which of 2-6 candidate options best satisfies a decision (given evidence " +
-					"and priorities), with optional escape hatches (ask_user/investigate/none) and optional " +
-					"per-requirement, per-candidate checks, using TypeSafe's Jev judgment model. Fails closed: a " +
-					"malformed or missing answer is reported as status=\"invalid_response\" (recommendation) or " +
-					"answer=\"invalid_response\" (a requirement check), never fabricated.",
+				Name:        ToolNameDecide,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[DecideInput, DecideOutput].
+// Handle implements mcp.ToolHandlerFor[DecideInput, DecideOutput]: a
+// thin adapter over run (the transport-agnostic core both the MCP
+// handler and the CLI subcommand share).
 func (h *DecideHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in DecideInput) (*mcp.CallToolResult, DecideOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, DecideOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_decide's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *DecideHandler) run(ctx context.Context, in DecideInput) (DecideOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, DecideOutput{}, err
+		return DecideOutput{}, err
 	}
 	escapeHatches := true
 	if in.EscapeHatches != nil {
@@ -252,7 +266,7 @@ func (h *DecideHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: itemCount,
 		})
-		return nil, DecideOutput{}, refuseErr
+		return DecideOutput{}, refuseErr
 	}
 
 	state := map[string]any{"decision": in.Decision, "evidence": in.Evidence, "priorities": in.Priorities}
@@ -305,7 +319,7 @@ func (h *DecideHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: itemCount,
 		})
-		return nil, DecideOutput{}, fmt.Errorf("jev_decide: %w", callErr)
+		return DecideOutput{}, fmt.Errorf("jev_decide: %w", callErr)
 	}
 
 	out := DecideOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -370,7 +384,7 @@ func (h *DecideHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 		ItemCount: itemCount, InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func checkKey(requirementIndex int, candidateID string) string {

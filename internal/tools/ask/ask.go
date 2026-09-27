@@ -50,6 +50,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -157,35 +158,48 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 }
 
 func init() {
+	description := "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
+		"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
+		"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
+		"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
+		"one key is status=\"invalid_response\", every other key's valid answer is unaffected."
 	registry.Register(registry.Tool{
-		Name:    "ask",
-		MCPName: ToolNameAsk,
-		Description: "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
-			"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
-			"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
-			"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
-			"one key is status=\"invalid_response\", every other key's valid answer is unaffected.",
+		Name:        "ask",
+		MCPName:     ToolNameAsk,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewAskHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameAsk,
-				Description: "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
-					"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
-					"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
-					"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
-					"one key is status=\"invalid_response\", every other key's valid answer is unaffected.",
+				Name:        ToolNameAsk,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[AskInput, AskOutput].
+// Handle implements mcp.ToolHandlerFor[AskInput, AskOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *AskHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, AskOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_ask's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *AskHandler) run(ctx context.Context, in AskInput) (AskOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, AskOutput{}, err
+		return AskOutput{}, err
 	}
 
 	inputHash := audit.HashValue(in)
@@ -197,7 +211,7 @@ func (h *AskHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in AskI
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: len(in.Questions),
 		})
-		return nil, AskOutput{}, refuseErr
+		return AskOutput{}, refuseErr
 	}
 
 	questions := make(map[string]openrouter.Question, len(in.Questions))
@@ -214,7 +228,7 @@ func (h *AskHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in AskI
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Questions),
 		})
-		return nil, AskOutput{}, fmt.Errorf("jev_ask: %w", callErr)
+		return AskOutput{}, fmt.Errorf("jev_ask: %w", callErr)
 	}
 
 	out := AskOutput{Model: resp.Model, LatencyMs: latencyMs, Answers: make(map[string]AskAnswer, len(in.Questions))}
@@ -284,7 +298,7 @@ func (h *AskHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in AskI
 		ItemCount: len(in.Questions), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 // stringKeySet returns the key set of criteria (already validated to be a

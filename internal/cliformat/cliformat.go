@@ -224,10 +224,25 @@ func (r *renderer) tableField(pad, name string, fv reflect.Value) {
 	tw.Flush()
 }
 
-// scalarString renders a non-struct, non-map value the way the JSON
-// output would (so text and JSON stay mentally aligned): strings are
-// quoted only when they need it for disambiguation, floats keep full
-// precision, nil interfaces render as null.
+// scalarString renders a value inline (used for top-level scalar
+// fields, and recursively for any value nested inside a map entry or a
+// table cell -- contexts that need a single-line rendering rather than
+// the multi-line block layout structFields uses for a whole Output
+// struct's own top-level nested-struct fields).
+//
+// Kinds handled: strings are quoted only when they need it for
+// disambiguation; floats/bools/ints render plainly; nil pointers and
+// nil interfaces render as "null" (a non-nil one recurses into its
+// pointee); slices/arrays join their elements with ", "; maps render as
+// sorted "key=value, key2=value2" pairs; structs render as
+// "field=value, field2=value2" pairs using the same JSON field names
+// the rest of this package uses, recursing on every field's value so a
+// struct-valued map entry or table cell (e.g. jev_ask's per-question
+// Answer, or a per-claim Probabilities map nested inside jev_verify's
+// results table) never falls through to Go's raw %v struct/pointer
+// dump -- which would print unexported internals and a live pointer
+// address, a correctness bug (leaking an address) as well as an
+// unreadable one.
 func scalarString(v reflect.Value) string {
 	if !v.IsValid() {
 		return "null"
@@ -241,10 +256,40 @@ func scalarString(v reflect.Value) string {
 		return s
 	case reflect.Bool:
 		return fmt.Sprintf("%v", v.Bool())
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return "null"
+		}
+		return scalarString(v.Elem())
 	case reflect.Slice, reflect.Array:
 		parts := make([]string, v.Len())
 		for i := range v.Len() {
 			parts[i] = scalarString(reflect.Indirect(v.Index(i)))
+		}
+		return strings.Join(parts, ", ")
+	case reflect.Map:
+		keys := v.MapKeys()
+		sort.Slice(keys, func(i, j int) bool {
+			return fmt.Sprint(keys[i].Interface()) < fmt.Sprint(keys[j].Interface())
+		})
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s=%s", fmt.Sprint(k.Interface()), scalarString(v.MapIndex(k))))
+		}
+		return strings.Join(parts, ", ")
+	case reflect.Struct:
+		t := v.Type()
+		var parts []string
+		for i := range t.NumField() {
+			f := t.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			name, ok := jsonFieldName(f)
+			if !ok {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s=%s", name, scalarString(v.Field(i))))
 		}
 		return strings.Join(parts, ", ")
 	default:

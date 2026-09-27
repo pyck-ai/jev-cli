@@ -1,9 +1,12 @@
 # jev-mcp
 
 jev-mcp exposes TypeSafe's **Jev** judgment model, via
-[OpenRouter](https://openrouter.ai)'s SystemOne API, as 14 MCP (Model
-Context Protocol) tools, for use from [opencode](https://opencode.ai) or any
-other MCP-compatible client.
+[OpenRouter](https://openrouter.ai)'s SystemOne API, as 14 tools -- as an
+MCP (Model Context Protocol) server for [opencode](https://opencode.ai) or
+any other MCP-compatible client, **and** as a plain Unix CLI (`jev score
+...`, `jev verify ...`, ...) for everything else. Same 14 tools, same
+underlying logic, either way -- see
+[Two run modes, one registration](docs/architecture.md#two-run-modes-one-registration).
 
 ## What is jev-mcp?
 
@@ -23,6 +26,12 @@ Out of the box, jev-mcp includes:
   `jev_extract`, `jev_review`, `jev_gate`, `jev_doctor`, and `jev_ask`. See
   [Tool reference](docs/tool-reference.md) for the full input/output spec of
   each.
+- **Both an MCP server and a CLI, from one binary**: `jev` with no
+  arguments (or `jev mcp`) speaks MCP over stdio; `jev score ...`, `jev
+  verify ...`, etc. run the exact same tool logic as a Unix command, with
+  flags or a `--json` blob for input, human-readable text or `-o json` for
+  output, and an exit code reflecting the tool's own verdict — see
+  [CLI usage](docs/development.md#cli-usage).
 - **A [self-registering plugin architecture](docs/architecture.md#plugin-architecture)**:
   adding or removing a tool is a one-package, one-line change, and involves
   editing no other file.
@@ -42,9 +51,9 @@ Out of the box, jev-mcp includes:
 ## Getting started
 
 ```sh
-go build -o jev-mcp .                    # build the binary
-go test -race ./...                      # unit + fake-server integration tests
-OPENROUTER_API_KEY=sk-or-... ./jev-mcp   # smoke-test it standalone
+go build -o jev .                    # build the binary
+go test -race ./...                  # unit + fake-server integration tests
+OPENROUTER_API_KEY=sk-or-... ./jev   # MCP server: smoke-test it standalone
 ```
 
 Needs Go 1.25+ (developed against go1.26.8) and an OpenRouter API key with
@@ -56,10 +65,17 @@ real OpenRouter account is needed to run the tests — every tool's handler is
 tested against a fake OpenRouter server instead (see
 [Testing](docs/development.md#testing)).
 
+Or use it as a CLI right away, same binary:
+
+```sh
+OPENROUTER_API_KEY=sk-or-... ./jev score --state "2+2=4" --scale-min 0 --scale-max 1 \
+  --instructions "0=false, 1=true"
+```
+
 It's runnable with no local checkout or build step at all:
 
 ```sh
-go run github.com/pyck-ai/jev-mcp@main
+go run github.com/pyck-ai/jev-mcp@main score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
 ```
 
 To use it from an MCP client, see

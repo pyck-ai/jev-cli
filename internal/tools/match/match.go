@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -152,31 +153,46 @@ func NewMatchHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
+	description := "Find the single best-matching candidate for a query, and whether any candidate " +
+		"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
+		"or missing model answer is reported as status=\"invalid_response\", never a fabricated match."
 	registry.Register(registry.Tool{
-		Name:    "match",
-		MCPName: ToolNameMatch,
-		Description: "Find the single best-matching candidate for a query, and whether any candidate " +
-			"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
-			"or missing model answer is reported as status=\"invalid_response\", never a fabricated match.",
+		Name:        "match",
+		MCPName:     ToolNameMatch,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewMatchHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameMatch,
-				Description: "Find the single best-matching candidate for a query, and whether any candidate " +
-					"actually answers it at all, using TypeSafe's Jev judgment model. Fails closed: a malformed " +
-					"or missing model answer is reported as status=\"invalid_response\", never a fabricated match.",
+				Name:        ToolNameMatch,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[MatchInput, MatchOutput].
+// Handle implements mcp.ToolHandlerFor[MatchInput, MatchOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *MatchHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in MatchInput) (*mcp.CallToolResult, MatchOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, MatchOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_match's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *MatchHandler) run(ctx context.Context, in MatchInput) (MatchOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, MatchOutput{}, err
+		return MatchOutput{}, err
 	}
 
 	inputHash := audit.HashValue(in)
@@ -188,7 +204,7 @@ func (h *MatchHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ma
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: len(in.Candidates),
 		})
-		return nil, MatchOutput{}, refuseErr
+		return MatchOutput{}, refuseErr
 	}
 
 	truncated := make([]Candidate, len(in.Candidates))
@@ -227,7 +243,7 @@ func (h *MatchHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ma
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Candidates),
 		})
-		return nil, MatchOutput{}, fmt.Errorf("jev_match: %w", callErr)
+		return MatchOutput{}, fmt.Errorf("jev_match: %w", callErr)
 	}
 
 	out := MatchOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -279,7 +295,7 @@ func (h *MatchHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ma
 		ItemCount: 2, InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 // existsVerdict classifies a validated "exists" noul probability using

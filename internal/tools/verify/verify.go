@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -158,36 +159,49 @@ func NewVerifyHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
+	description := "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
+		"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
+		"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
+		"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
+		"verdict."
 	registry.Register(registry.Tool{
-		Name:    "verify",
-		MCPName: ToolNameVerify,
-		Description: "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
-			"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
-			"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
-			"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
-			"verdict.",
+		Name:        "verify",
+		MCPName:     ToolNameVerify,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewVerifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameVerify,
-				Description: "Batch-verify a list of claims against supplied evidence using TypeSafe's Jev " +
-					"judgment model (via OpenRouter's SystemOne API's \"choice\" question type): each claim is " +
-					"judged as supports/contradicts/says_nothing. Fails closed per claim: a malformed or missing " +
-					"answer is reported as status=\"invalid_response\" with action=\"review\", never a fabricated " +
-					"verdict.",
+				Name:        ToolNameVerify,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[VerifyInput, VerifyOutput].
+// Handle implements mcp.ToolHandlerFor[VerifyInput, VerifyOutput]: a thin
+// adapter over run (the transport-agnostic core both the MCP handler and
+// the CLI subcommand share).
 func (h *VerifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in VerifyInput) (*mcp.CallToolResult, VerifyOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, VerifyOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_verify's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *VerifyHandler) run(ctx context.Context, in VerifyInput) (VerifyOutput, error) {
 	start := time.Now()
 
 	state, err := validateInput(in)
 	if err != nil {
-		return nil, VerifyOutput{}, err
+		return VerifyOutput{}, err
 	}
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, defaultAutoAccept)
 
@@ -200,7 +214,7 @@ func (h *VerifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in V
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: len(in.Claims),
 		})
-		return nil, VerifyOutput{}, refuseErr
+		return VerifyOutput{}, refuseErr
 	}
 
 	questions := make(map[string]openrouter.Question, len(in.Claims))
@@ -228,7 +242,7 @@ func (h *VerifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in V
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Claims),
 		})
-		return nil, VerifyOutput{}, fmt.Errorf("jev_verify: %w", callErr)
+		return VerifyOutput{}, fmt.Errorf("jev_verify: %w", callErr)
 	}
 
 	out := VerifyOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -286,7 +300,7 @@ func (h *VerifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in V
 		ItemCount: len(in.Claims), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 func claimKey(i int) string { return "c" + strconv.Itoa(i) }

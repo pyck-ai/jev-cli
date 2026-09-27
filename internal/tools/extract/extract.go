@@ -78,6 +78,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 
 	"github.com/pyck-ai/jev-mcp/internal/answers"
 	"github.com/pyck-ai/jev-mcp/internal/audit"
@@ -196,35 +197,48 @@ func NewExtractHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
+	description := "Extract named fields from a document: for each field, a regex finds candidate " +
+		"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
+		"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
+		"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
+		"answer is reported as status=\"invalid_response\", never a fabricated value."
 	registry.Register(registry.Tool{
-		Name:    "extract",
-		MCPName: ToolNameExtract,
-		Description: "Extract named fields from a document: for each field, a regex finds candidate " +
-			"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
-			"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
-			"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
-			"answer is reported as status=\"invalid_response\", never a fabricated value.",
+		Name:        "extract",
+		MCPName:     ToolNameExtract,
+		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewExtractHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
 			mcp.AddTool(server, &mcp.Tool{
-				Name: ToolNameExtract,
-				Description: "Extract named fields from a document: for each field, a regex finds candidate " +
-					"substrings and TypeSafe's Jev judgment model picks the real value (or 'none of the above') " +
-					"among them. A field with zero regex matches costs nothing -- no model call is made for it, " +
-					"and if EVERY field has zero matches, no model call is made at all. Fails closed: a malformed " +
-					"answer is reported as status=\"invalid_response\", never a fabricated value.",
+				Name:        ToolNameExtract,
+				Description: description,
 			}, h.Handle)
 		},
-		RegisterCLI: nil,
+		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
+			root.AddCommand(newCLICommand(provider, description))
+		},
 	})
 }
 
-// Handle implements mcp.ToolHandlerFor[ExtractInput, ExtractOutput].
+// Handle implements mcp.ToolHandlerFor[ExtractInput, ExtractOutput]: a
+// thin adapter over run (the transport-agnostic core both the MCP
+// handler and the CLI subcommand share).
 func (h *ExtractHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in ExtractInput) (*mcp.CallToolResult, ExtractOutput, error) {
+	out, err := h.run(ctx, in)
+	if err != nil {
+		return nil, ExtractOutput{}, err
+	}
+	return nil, out, nil
+}
+
+// run is jev_extract's transport-agnostic core: everything from input
+// validation through the SystemOne call, budget accounting, and audit
+// logging, independent of whether the caller is the MCP handler (Handle)
+// or the CLI subcommand (cli.go).
+func (h *ExtractHandler) run(ctx context.Context, in ExtractInput) (ExtractOutput, error) {
 	start := time.Now()
 
 	if err := validateInput(in); err != nil {
-		return nil, ExtractOutput{}, err
+		return ExtractOutput{}, err
 	}
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, defaultAutoAccept)
 
@@ -266,7 +280,7 @@ func (h *ExtractHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 			Tool: ToolNameExtract, Model: h.model, InputStateSHA256: inputHash,
 			Status: "ok", LatencyMs: out.LatencyMs, ItemCount: len(in.Fields),
 		})
-		return nil, out, nil
+		return out, nil
 	}
 
 	if h.budget.SessionBudgetExceeded() {
@@ -276,7 +290,7 @@ func (h *ExtractHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
 			ItemCount: len(in.Fields),
 		})
-		return nil, ExtractOutput{}, refuseErr
+		return ExtractOutput{}, refuseErr
 	}
 
 	questions := make(map[string]openrouter.Question, len(pending))
@@ -313,7 +327,7 @@ func (h *ExtractHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Fields),
 		})
-		return nil, ExtractOutput{}, fmt.Errorf("jev_extract: %w", callErr)
+		return ExtractOutput{}, fmt.Errorf("jev_extract: %w", callErr)
 	}
 
 	out := ExtractOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -371,7 +385,7 @@ func (h *ExtractHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 		ItemCount: len(in.Fields), InvalidCount: invalidCount,
 	})
 
-	return nil, out, nil
+	return out, nil
 }
 
 // findCandidates runs re against document, bounded by timeout (see
