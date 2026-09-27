@@ -38,7 +38,9 @@ skip the issue and go straight to a pull request.
   [Tool reference](docs/tool-reference.md).
 - Run `go build ./...`, `go vet ./...`, `gofmt -l .`, and
   `go test -race -count=1 ./...` (see [Development](docs/development.md))
-  before opening a pull request.
+  before opening a pull request. CI (`.github/workflows/ci.yml`) runs the
+  same four on every pull request and push to `main`; its `success` job is
+  the one required status check.
 
 ### Open a pull request
 
