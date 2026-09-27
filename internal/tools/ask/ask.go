@@ -92,9 +92,9 @@ type Usage struct {
 // object ({"<value_or_option_id>": "<description>"}) for "noul"/"choice",
 // or a non-empty JSON array of level-description strings for "score".
 type AskQuestion struct {
-	Type         string `json:"type"`
-	Instructions string `json:"instructions"`
-	Criteria     any    `json:"criteria"`
+	Type         string `json:"type" jsonschema:"One of \"noul\" (probability that a statement is true), \"choice\" (pick exactly one of several options), or \"score\" (place on an ordered scale)."`
+	Instructions string `json:"instructions" jsonschema:"The question to answer about state, e.g. \"Does the PRD state the customer impact?\"."`
+	Criteria     any    `json:"criteria" jsonschema:"Required and non-empty; shape depends on type. noul: an object mapping the two answers to descriptions, exactly {\"true\": \"<when true>\", \"false\": \"<when false>\"}. choice: an object mapping each option id to its description, e.g. {\"auth\": \"authentication gap\", \"perf\": \"performance gap\"}; the answer is one of these ids (there is no \"options\" key or list). score: an array of level descriptions, lowest first, e.g. [\"missing\", \"partial\", \"complete\"]; the answer is a 0-based index into this array."`
 }
 
 // AskInput is the jev_ask tool's input schema.
@@ -160,9 +160,16 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 func init() {
 	description := "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
 		"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
-		"almost 1:1. Validates each question's type and criteria shape before sending (rejecting " +
-		"malformed requests outright) and fails closed per answer: a malformed or missing answer for " +
-		"one key is status=\"invalid_response\", every other key's valid answer is unaffected."
+		"almost 1:1. Every question needs type, instructions and a non-empty criteria whose shape " +
+		"depends on type. Example questions: " +
+		`{"impact_stated": {"type": "noul", "instructions": "Does the PRD state the customer impact?", ` +
+		`"criteria": {"true": "customer impact is stated", "false": "customer impact is missing"}}, ` +
+		`"top_gap": {"type": "choice", "instructions": "What is the biggest gap?", ` +
+		`"criteria": {"scope": "unclear scope", "metrics": "no success metrics", "risks": "risks not covered"}}, ` +
+		`"completeness": {"type": "score", "instructions": "How complete is the PRD?", ` +
+		`"criteria": ["missing", "partial", "complete"]}}. ` +
+		"Rejects a malformed question before sending, and fails closed per answer: a malformed or " +
+		"missing answer for one key is status=\"invalid_response\", every other key's valid answer is unaffected."
 	registry.Register(registry.Tool{
 		Name:        "ask",
 		MCPName:     ToolNameAsk,
@@ -341,6 +348,20 @@ func validateInput(in AskInput) error {
 	return nil
 }
 
+// criteriaHint shows the expected criteria shape for a question type, so a
+// validation error tells the caller how to fix the call.
+func criteriaHint(questionType string) string {
+	switch questionType {
+	case TypeNoul:
+		return `for "noul" use {"true": "<when true>", "false": "<when false>"}`
+	case TypeChoice:
+		return `for "choice" map each option id to its description, e.g. {"a": "<option a>", "b": "<option b>"}; there is no "options" list`
+	case TypeScore:
+		return `for "score" use an array of level descriptions, lowest first, e.g. ["missing", "partial", "complete"]`
+	}
+	return ""
+}
+
 // validateQuestion validates one question's type and criteria shape.
 func validateQuestion(id string, q AskQuestion) error {
 	if strings.TrimSpace(q.Instructions) == "" {
@@ -350,27 +371,37 @@ func validateQuestion(id string, q AskQuestion) error {
 	case TypeNoul, TypeChoice:
 		obj, ok := q.Criteria.(map[string]any)
 		if !ok {
-			return fmt.Errorf("questions[%q]: criteria must be a JSON object for type %q, got %T", id, q.Type, q.Criteria)
+			return fmt.Errorf("questions[%q]: criteria must be a JSON object for type %q, got %T; %s", id, q.Type, q.Criteria, criteriaHint(q.Type))
 		}
 		if len(obj) == 0 {
-			return fmt.Errorf("questions[%q]: criteria must not be empty", id)
+			return fmt.Errorf("questions[%q]: criteria must not be empty; %s", id, criteriaHint(q.Type))
 		}
 		for k, v := range obj {
 			if _, ok := v.(string); !ok {
-				return fmt.Errorf("questions[%q]: criteria[%q] must be a string description, got %T", id, k, v)
+				return fmt.Errorf("questions[%q]: criteria[%q] must be a string description, got %T; %s", id, k, v, criteriaHint(q.Type))
+			}
+		}
+		// SystemOne requires exactly these two keys for noul; anything
+		// else is rejected by OpenRouter with an opaque HTTP 400
+		// (verified live 2026-09-28 with {"yes":...,"no":...}).
+		if q.Type == TypeNoul {
+			_, hasTrue := obj["true"]
+			_, hasFalse := obj["false"]
+			if !hasTrue || !hasFalse || len(obj) != 2 {
+				return fmt.Errorf("questions[%q]: criteria for \"noul\" must have exactly the keys \"true\" and \"false\"; %s", id, criteriaHint(q.Type))
 			}
 		}
 	case TypeScore:
 		arr, ok := q.Criteria.([]any)
 		if !ok {
-			return fmt.Errorf("questions[%q]: criteria must be a JSON array for type \"score\", got %T", id, q.Criteria)
+			return fmt.Errorf("questions[%q]: criteria must be a JSON array for type \"score\", got %T; %s", id, q.Criteria, criteriaHint(q.Type))
 		}
 		if len(arr) == 0 {
-			return fmt.Errorf("questions[%q]: criteria must not be empty", id)
+			return fmt.Errorf("questions[%q]: criteria must not be empty; %s", id, criteriaHint(q.Type))
 		}
 		for i, v := range arr {
 			if _, ok := v.(string); !ok {
-				return fmt.Errorf("questions[%q]: criteria[%d] must be a level-description string, got %T", id, i, v)
+				return fmt.Errorf("questions[%q]: criteria[%d] must be a level-description string, got %T; %s", id, i, v, criteriaHint(q.Type))
 			}
 		}
 	default:

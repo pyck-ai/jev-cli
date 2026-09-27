@@ -805,7 +805,7 @@ shape almost 1:1.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `state` | string \| any | Y | Matches SystemOne's own `state` field flexibility exactly. |
-| `questions` | `map[string]{type,instructions,criteria}` | Y | Capped at 64 questions (this implementation's own invented cap). `type` must be `"noul"`, `"choice"`, or `"score"`; `criteria` must be a non-empty JSON object for `"noul"`/`"choice"`, or a non-empty JSON array of strings for `"score"` — validated **before** anything is sent, rejecting the whole call with a clear error otherwise. |
+| `questions` | `map[string]{type,instructions,criteria}` | Y | Capped at 64 questions (this implementation's own invented cap). `type` must be `"noul"`, `"choice"`, or `"score"`; `criteria` depends on `type`: for `"noul"`, exactly `{"true": "<when true>", "false": "<when false>"}` (SystemOne rejects any other keys); for `"choice"`, an object mapping each option id to its description, e.g. `{"scope": "unclear scope", "metrics": "no success metrics"}` (no `options` list); for `"score"`, an array of level descriptions, lowest first, e.g. `["missing", "partial", "complete"]`. Validated **before** anything is sent; the error message shows the expected shape. |
 
 ### Output
 

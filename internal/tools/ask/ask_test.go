@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -158,11 +159,52 @@ func TestValidateInput(t *testing.T) {
 				"q": {Type: "noul", Instructions: "i", Criteria: map[string]any{}},
 			},
 		},
+		"noul criteria with yes/no keys (SystemOne needs true/false)": {
+			State: "s",
+			Questions: map[string]AskQuestion{
+				"q": {Type: "noul", Instructions: "i", Criteria: map[string]any{"yes": "y", "no": "n"}},
+			},
+		},
+		"noul criteria with extra key": {
+			State: "s",
+			Questions: map[string]AskQuestion{
+				"q": {Type: "noul", Instructions: "i", Criteria: map[string]any{"true": "t", "false": "f", "maybe": "m"}},
+			},
+		},
+		"choice criteria as options list": {
+			State: "s",
+			Questions: map[string]AskQuestion{
+				"q": {Type: "choice", Instructions: "i", Criteria: map[string]any{"options": []any{"a", "b"}}},
+			},
+		},
 	}
 	for name, in := range cases {
 		t.Run(name, func(t *testing.T) {
 			if err := validateInput(in); err == nil {
 				t.Errorf("expected error for case %q", name)
+			}
+		})
+	}
+}
+
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling jev_ask
+// over MCP only see the error text, so each criteria error must say what
+// the right shape is, not just what was wrong.
+func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
+	cases := map[string]struct {
+		q    AskQuestion
+		want string
+	}{
+		"empty noul":   {AskQuestion{Type: "noul", Instructions: "i", Criteria: map[string]any{}}, `{"true": "<when true>", "false": "<when false>"}`},
+		"choice list":  {AskQuestion{Type: "choice", Instructions: "i", Criteria: map[string]any{"options": []any{"a"}}}, `there is no "options" list`},
+		"score object": {AskQuestion{Type: "score", Instructions: "i", Criteria: map[string]any{"0": "low"}}, `["missing", "partial", "complete"]`},
+		"noul yes/no":  {AskQuestion{Type: "noul", Instructions: "i", Criteria: map[string]any{"yes": "y", "no": "n"}}, `exactly the keys "true" and "false"`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateInput(AskInput{State: "s", Questions: map[string]AskQuestion{"q": c.q}})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %v, want it to contain %q", err, c.want)
 			}
 		})
 	}
