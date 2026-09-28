@@ -108,6 +108,22 @@ point the command at it: `go run -C /path/to/jev-cli ./cmd/jev mcp`. Every
 server start then builds your working tree, so an edit takes effect the
 next time the client restarts or reconnects the server.
 
+### Serving only some tools
+
+`jev mcp` serves all 14 tools by default. `--tools` limits it to a
+comma-separated list, using the names from `jev --help` (a `jev_` prefix is
+optional):
+
+```sh
+jev mcp --tools verify,check,compare
+```
+
+Tools left out never appear in the client's tool list, so they cost no
+context tokens. That makes it the way to give different agents different
+tool sets: register one server entry per set, each with its own `--tools`,
+and enable each entry only for the agents that need it. An unknown name
+fails at startup with the list of valid names.
+
 ### opencode
 
 Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-servers/)):

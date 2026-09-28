@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -94,20 +95,23 @@ func main() {
 }
 
 // runMCPServer is the `jev mcp` mode: build the shared dependencies,
-// register every tool as an MCP tool, and serve MCP over stdio until the
-// client disconnects or an error occurs.
-func runMCPServer() {
+// register the selected tools as MCP tools, and serve MCP over stdio until
+// the client disconnects or an error occurs.
+func runMCPServer(tools []registry.Tool) {
 	deps := buildDeps(1)
 
-	server := newServer(deps)
+	server := newServer(deps, tools)
 
-	// Unlike before this file supported more than one tool, the startup
-	// log line can no longer name a single tool's resolved model (each
-	// registered tool may resolve a different model via
-	// cfg.ToolModelOverrides) -- it reports the tool count and the
-	// fallback default_model instead.
-	fmt.Fprintf(os.Stderr, "jev: starting (tools=%d, default_model=%s, config=%s, audit_log=%s)\n",
-		len(registry.All()), deps.Config.DefaultModel, mustConfigPath(), mustAuditPath())
+	// The log line reports the tool count and the fallback default_model
+	// (each tool may resolve a different model via
+	// cfg.ToolModelOverrides), plus the tool names when --tools limited
+	// the set.
+	toolsDesc := fmt.Sprint(len(tools))
+	if len(tools) < len(registry.All()) {
+		toolsDesc += " [" + strings.Join(toolCLINames(tools), ",") + "]"
+	}
+	fmt.Fprintf(os.Stderr, "jev: starting (tools=%s, default_model=%s, config=%s, audit_log=%s)\n",
+		toolsDesc, deps.Config.DefaultModel, mustConfigPath(), mustAuditPath())
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "jev: server exited with error: %v\n", err)
@@ -127,9 +131,50 @@ const (
 	groupServer = "server"
 )
 
+// selectTools resolves `jev mcp --tools` names to registered tools. Names
+// are the CLI subcommand names (verify, check, ...); a "jev_" prefix is
+// accepted too, so MCP tool names work as well. An empty list selects every
+// tool. Duplicates are ignored, and the result keeps registration order.
+func selectTools(names []string) ([]registry.Tool, error) {
+	all := registry.All()
+	if len(names) == 0 {
+		return all, nil
+	}
+	known := make(map[string]bool, len(all))
+	for _, t := range all {
+		known[t.Name] = true
+	}
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		key := strings.TrimPrefix(strings.TrimSpace(n), "jev_")
+		if !known[key] {
+			return nil, fmt.Errorf("--tools: unknown tool %q; valid tools are: %s (a jev_ prefix is optional)",
+				n, strings.Join(toolCLINames(all), ", "))
+		}
+		want[key] = true
+	}
+	var selected []registry.Tool
+	for _, t := range all {
+		if want[t.Name] {
+			selected = append(selected, t)
+		}
+	}
+	return selected, nil
+}
+
+// toolCLINames returns the CLI subcommand names of tools, in order.
+func toolCLINames(tools []registry.Tool) []string {
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Name
+	}
+	return names
+}
+
 // newRootCmd builds the whole command tree: the root (the TUI placeholder),
-// the `mcp` subcommand (which calls serveMCP), and one subcommand per
-// registered tool, added by that tool's RegisterCLI hook.
+// the `mcp` subcommand (which calls serveMCP with the tools selected by
+// --tools), and one subcommand per registered tool, added by that tool's
+// RegisterCLI hook.
 //
 // provider is LAZY: it builds the credential/config/audit plumbing (and
 // exits the process if that fails) only when a tool subcommand actually
@@ -137,7 +182,7 @@ const (
 // `jev score --help` work with no credentials configured. serveMCP is a
 // parameter so tests can check the `mcp` wiring without starting a
 // server.
-func newRootCmd(provider registry.DepsProvider, serveMCP func()) *cobra.Command {
+func newRootCmd(provider registry.DepsProvider, serveMCP func([]registry.Tool)) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "jev",
 		Short: "TypeSafe's Jev judgment model, as a CLI and an MCP server",
@@ -163,14 +208,32 @@ as a set of judgment tools, in three modes:
 		&cobra.Group{ID: groupServer, Title: "Server:"},
 	)
 
-	root.AddCommand(&cobra.Command{
-		Use:     "mcp",
-		Short:   "Run the MCP server over stdio",
-		Long:    "Serve every jev tool (jev_score, jev_verify, ...) as an MCP tool over stdio.\nPoint your MCP client's server command at `jev mcp`.",
+	var toolsFlag []string
+	mcpCmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "Run the MCP server over stdio",
+		Long: `Serve jev tools (jev_score, jev_verify, ...) as MCP tools over stdio.
+Point your MCP client's server command at ` + "`jev mcp`" + `.
+
+By default every tool is served. Use --tools to serve only some of them,
+e.g. to give different agents different tool sets or to keep the tool
+list (and its token cost) small:
+
+  jev mcp --tools verify,check,compare`,
 		GroupID: groupServer,
 		Args:    cobra.NoArgs,
-		Run:     func(cmd *cobra.Command, args []string) { serveMCP() },
-	})
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tools, err := selectTools(toolsFlag)
+			if err != nil {
+				return err
+			}
+			serveMCP(tools)
+			return nil
+		},
+	}
+	mcpCmd.Flags().StringSliceVar(&toolsFlag, "tools", nil,
+		"Serve only these tools, comma-separated (e.g. verify,check,compare). Names as in `jev --help`; a jev_ prefix is optional. Default: all tools.")
+	root.AddCommand(mcpCmd)
 
 	toolNames := make(map[string]bool)
 	for _, t := range registry.All() {
@@ -249,13 +312,13 @@ func buildDeps(exitCode int) *registry.Deps {
 // pointed at a fake OpenRouter endpoint, and drive it through a real MCP
 // client/server session (see main_test.go), without going through
 // os.Exit-prone startup code or touching the real network.
-func newServer(deps *registry.Deps) *mcp.Server {
+func newServer(deps *registry.Deps, tools []registry.Tool) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "jev-cli",
 		Version: serverVersion,
 	}, nil)
 
-	for _, t := range registry.All() {
+	for _, t := range tools {
 		t.RegisterMCP(server, deps)
 	}
 

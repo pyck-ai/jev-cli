@@ -70,7 +70,8 @@ jev --help
 ```
 
 Or as an MCP server: `jev mcp` speaks MCP over stdio, so an MCP client's
-server command is `jev mcp`. See
+server command is `jev mcp` (add `--tools verify,check,...` to serve only
+some tools). See
 [Using jev from an MCP client](docs/development.md#using-jev-from-an-mcp-client)
 for opencode and Claude Code configs.
 

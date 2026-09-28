@@ -69,7 +69,7 @@ func TestEndToEnd_MCPWireProtocol(t *testing.T) {
 		Audit:  auditLog,
 	}
 
-	server := newServer(deps)
+	server := newServer(deps, registry.All())
 	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -183,7 +183,7 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 		Budget: budget.NewTracker(0),
 		Audit:  audit.NewLogger(t.TempDir() + "/audit.jsonl"),
 	}
-	server := newServer(deps)
+	server := newServer(deps, registry.All())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -246,7 +246,7 @@ func noDepsProvider(t *testing.T) registry.DepsProvider {
 // one subcommand per tool plus `mcp`. It's a tripwire: update want when a
 // tool is added or removed.
 func TestNewRootCmd_Subcommands(t *testing.T) {
-	root := newRootCmd(noDepsProvider(t), func() {})
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) {})
 
 	want := []string{
 		"ask", "check", "classify", "compare", "decide",
@@ -271,7 +271,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 // into exit 3) instead of silently starting the MCP server or printing help.
 func TestRootCmd_NoArgsIsNotImplementedTUI(t *testing.T) {
 	mcpStarted := false
-	root := newRootCmd(noDepsProvider(t), func() { mcpStarted = true })
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) { mcpStarted = true })
 	root.SetArgs([]string{})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -291,7 +291,7 @@ func TestRootCmd_NoArgsIsNotImplementedTUI(t *testing.T) {
 
 func TestRootCmd_McpStartsServer(t *testing.T) {
 	mcpStarted := false
-	root := newRootCmd(noDepsProvider(t), func() { mcpStarted = true })
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) { mcpStarted = true })
 	root.SetArgs([]string{"mcp"})
 
 	if err := root.Execute(); err != nil {
@@ -303,7 +303,7 @@ func TestRootCmd_McpStartsServer(t *testing.T) {
 }
 
 func TestRootCmd_HelpDescribesModes(t *testing.T) {
-	root := newRootCmd(noDepsProvider(t), func() {})
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) {})
 	root.SetArgs([]string{"--help"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -316,5 +316,103 @@ func TestRootCmd_HelpDescribesModes(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Errorf("--help output missing %q:\n%s", want, help)
 		}
+	}
+}
+
+func TestSelectTools(t *testing.T) {
+	all := registry.All()
+
+	got, err := selectTools(nil)
+	if err != nil || len(got) != len(all) {
+		t.Fatalf("selectTools(nil) = %d tools, err %v; want all %d", len(got), err, len(all))
+	}
+
+	// Registration order is kept, jev_ prefixes and duplicates are accepted.
+	got, err = selectTools([]string{"verify", "jev_check", " compare ", "check"})
+	if err != nil {
+		t.Fatalf("selectTools: %v", err)
+	}
+	names := toolCLINames(got)
+	var want []string
+	for _, n := range toolCLINames(all) {
+		if n == "verify" || n == "check" || n == "compare" {
+			want = append(want, n)
+		}
+	}
+	if !slices.Equal(names, want) {
+		t.Errorf("selected %v, want %v", names, want)
+	}
+
+	_, err = selectTools([]string{"verfiy"})
+	if err == nil || !strings.Contains(err.Error(), `unknown tool "verfiy"`) || !strings.Contains(err.Error(), "verify") {
+		t.Errorf("unknown tool error = %v, want it to name the bad tool and list valid ones", err)
+	}
+}
+
+func TestRootCmd_McpToolsFlag(t *testing.T) {
+	var served []registry.Tool
+	root := newRootCmd(noDepsProvider(t), func(tools []registry.Tool) { served = tools })
+	root.SetArgs([]string{"mcp", "--tools", "verify,check"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := toolCLINames(served); len(got) != 2 || !slices.Contains(got, "verify") || !slices.Contains(got, "check") {
+		t.Errorf("served %v, want [verify check] in registration order", got)
+	}
+
+	served = nil
+	root = newRootCmd(noDepsProvider(t), func(tools []registry.Tool) { served = tools })
+	root.SetArgs([]string{"mcp", "--tools", "nope"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	if err := root.Execute(); err == nil {
+		t.Error("expected an error for an unknown --tools name")
+	}
+	if served != nil {
+		t.Error("server must not start when --tools names an unknown tool")
+	}
+}
+
+// TestNewServer_OnlySelectedTools: tools left out by --tools must not
+// appear in the MCP tool list at all, since that is what keeps them out of
+// the model's context.
+func TestNewServer_OnlySelectedTools(t *testing.T) {
+	deps := &registry.Deps{
+		Client: openrouter.NewClientWithEndpoint("test-key", "http://127.0.0.1:0", openrouter.RetryPolicy{MaxAttempts: 1}),
+		Config: config.Default(),
+		Budget: budget.NewTracker(0),
+		Audit:  audit.NewLogger(t.TempDir() + "/audit.jsonl"),
+	}
+	tools, err := selectTools([]string{"verify", "check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newServer(deps, tools)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	t1, t2 := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "v0"}, nil).Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tool := range res.Tools {
+		got = append(got, tool.Name)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"jev_check", "jev_verify"}) {
+		t.Errorf("tools/list = %v, want [jev_check jev_verify]", got)
 	}
 }
