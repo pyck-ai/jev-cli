@@ -41,6 +41,9 @@ skip the issue and go straight to a pull request.
   before opening a pull request. CI (`.github/workflows/ci.yml`) runs the
   same four on every pull request and push to `main`; its `success` job is
   the one required status check.
+- If you change the `Dockerfile`, `ENV`, the default user, or any file the
+  image must ship, update [`verify.sh`](verify.sh) in the same change (see
+  [Docker image](docs/development.md#docker-image)).
 
 ### Open a pull request
 

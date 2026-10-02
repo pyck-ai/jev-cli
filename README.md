@@ -62,6 +62,33 @@ Install the `jev` binary from the `main` branch into `$(go env GOPATH)/bin`
 go install github.com/pyck-ai/jev-cli/cmd/jev@main
 ```
 
+### Docker image
+
+`ghcr.io/pyck-ai/jev-cli` (`linux/amd64`, `linux/arm64`), rebuilt on every
+merge to `main` and on a weekday schedule. There is exactly one tag,
+`latest` (jev-cli has no releases), so consumers should pin
+`ghcr.io/pyck-ai/jev-cli:latest@sha256:...`.
+
+```sh
+docker run --rm -i --user "$(id -u):$(id -g)" -e OPENROUTER_API_KEY \
+  ghcr.io/pyck-ai/jev-cli:latest check -j - -o json < payload.json
+```
+
+- `ENTRYPOINT` is `jev`, so arguments are the subcommand and flags. There is
+  no shell. The only network access needed is `https://openrouter.ai`.
+- Default user is uid/gid 1001 (the uid our GitHub Actions runners run as);
+  any `--user uid:gid` works.
+- `HOME=/tmp` (world-writable) because jev resolves its config dir and audit
+  log from `$HOME` at startup and exits 3 without one. Audit writes are
+  best-effort, and the audit log is lost with the container.
+- The key comes from `OPENROUTER_API_KEY`; opencode's auth store is not
+  present in the container.
+
+Build and verify files: [`Dockerfile`](Dockerfile),
+[`docker-bake.hcl`](docker-bake.hcl), [`buildargs.conf`](buildargs.conf),
+[`verify.sh`](verify.sh). Build locally with `task setup && task build`
+(loads `ghcr.io/pyck-ai/jev-cli:latest` locally, for the host architecture).
+
 Use it as a CLI:
 
 ```sh

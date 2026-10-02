@@ -1,0 +1,47 @@
+# GHCR retention for pyck-ai/jev-cli.
+#
+# Package names are full names, never a prefix joined to an image name.
+# The image is top level; the build cache is nested UNDER it.
+version: 1
+owner: pyck-ai
+
+# Pinned explicitly rather than left to ghcr-tidy's defaults: the
+# numbers governing an irreversible deletion belong in the repo they
+# delete from, not inherited from a default that could later change.
+# keepMajors, keepMinors and keepPatches equal the shared workflow's
+# own defaults. keepDays is raised deliberately from the default 30 to
+# 90 to keep recent builds around longer: nothing younger than keepDays
+# is ever deleted, tagged or not, so raising it can only retain more.
+retention:
+  keepMajors: 1
+  keepMinors: 3
+  keepPatches: 5
+  keepDays: 90
+
+# Pre-flight proof, taken before any deletion, that the registry is
+# readable and a known-good tag resolves (see ghcr-tidy's
+# `ManifestCanary` doc for why this must live here rather than as a
+# workflow input: the `tidy-ghcr.yml` caller's `inputs` are empty on a
+# `schedule` trigger). `jev-cli:latest` is chosen deliberately: `latest`
+# carries no version token, so it is an unversioned singleton kind,
+# always a keep-root, never in DELETE. A canary that could itself be
+# deleted would prove nothing.
+canary:
+  package: jev-cli
+  tag: latest
+
+packages:
+  # The published image. Multi-arch: each tagged index has 2 platform
+  # children plus 2 attestation manifests, all untagged. They are kept by
+  # reachability from the tag that points at them, never by being tagged.
+  # `latest` is the only tag, so every push orphans the previous index
+  # and its children; those are what retention reclaims once keepDays
+  # has passed.
+  - match: jev-cli
+
+  # The build cache. Its tags are overwritten on every push, so the only
+  # cost of deleting one is a cold rebuild. Its tags carry no version
+  # token, so every one is an unversioned singleton kind and always
+  # retained with no config needed; the churn is in the untagged layers
+  # underneath.
+  - match: jev-cli/buildcache

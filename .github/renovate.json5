@@ -9,7 +9,11 @@
 		"local>pyck-ai/renovate//presets/default.json5"
 	],
 	// Two surfaces to keep current: the Go module dependencies in go.mod,
-	// and the SHA-pinned actions in .github/workflows/.
+	// and the SHA-pinned actions in .github/workflows/ (ci.yml, build-image.yml
+	// and tidy-ghcr.yml, the latter two pinning the shared pyck-ai/github-actions
+	// workflows). The Docker image's base images are floating tags on purpose
+	// (refreshed by the scheduled rebuild, see buildargs.conf), so no
+	// Dockerfile or custom manager is enabled.
 	"enabledManagers": [
 		"gomod",
 		"github-actions"

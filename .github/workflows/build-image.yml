@@ -1,0 +1,45 @@
+name: build-image
+run-name: Build and push the jev-cli image
+
+# Weekdays at 14:00 UTC, plus every merge to main (see `push` below).
+on:
+  schedule:
+    # Staggered across the pyck-ai image repos, which share self-hosted
+    # runners: baseimages 09:00, github-runner 11:00, flutter-rfw 13:00,
+    # this repo 14:00. This is also after baseimages publishes the golang
+    # and static images this one builds FROM, so a scheduled run picks up
+    # the same day's base rather than yesterday's. Check the others before
+    # changing this slot.
+    - cron: '0 14 * * 1-5'
+  workflow_dispatch:
+  # Validate every PR before merge so Renovate (and humans) always have a status check
+  # to gate automerge on. PR runs push by digest only and do not export build cache
+  # (see the shared workflow's discover step and push:/cache-to handling).
+  pull_request:
+  # Deviation from the other image repos, which only rebuild on a schedule:
+  # here the image content IS this repo's code, so a merged change publishes
+  # `latest` right away instead of waiting for the next cron slot.
+  push:
+    branches: [main]
+
+# Cancel any in-progress build for the same ref when a newer one is triggered.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Delegates discover -> build (push-by-digest) -> verify (verify.sh run
+  # inside the image) -> publish (apply tags) -> gate to the shared workflow.
+  # See pyck-ai/github-actions/.github/workflows/build-image.yml for the job
+  # shape; this repo does not carry its own copy.
+  build:
+    permissions:
+      contents: read
+      packages: write
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@e11b1f384df6cf1a71b5ace1f741f7717880b866 # v0.1.0
+    with:
+      registry: ghcr.io/pyck-ai
+      # Distinct per-repo builder name so concurrent builds on the same
+      # self-hosted runner don't collide on a shared default builder.
+      builder-name: jev-cli
+    secrets: inherit
