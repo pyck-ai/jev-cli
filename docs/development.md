@@ -22,6 +22,32 @@ go install github.com/pyck-ai/jev-cli/cmd/jev@main
 `go vet ./...`, `gofmt -l .` (no output), and `go test -race ./...` are also
 clean (see [Testing](#testing)).
 
+### Docker image
+
+`ghcr.io/pyck-ai/jev-cli:latest` is built from [`Dockerfile`](../Dockerfile)
+via [`docker-bake.hcl`](../docker-bake.hcl):
+
+```sh
+task setup   # create the buildx builder (once per machine)
+task build   # build and load ghcr.io/pyck-ai/jev-cli:latest for the host arch
+```
+
+- Two stages: a cross-compiling Go build (`FROM --platform=$BUILDPLATFORM`,
+  `CGO_ENABLED=0`, no QEMU for the compiler) and a shell-less
+  `FROM scratch` runtime. The base image refs are floating tags in
+  [`buildargs.conf`](../buildargs.conf), refreshed by the scheduled rebuild
+  (`--pull`), not pinned or managed by Renovate.
+- The build context is a whitelist ([`.dockerignore`](../.dockerignore)):
+  `go.mod`, `go.sum`, `cmd/`, `internal/`. A new top-level Go source
+  directory must be added there or the image build will not see it.
+- The runtime sets `ENV HOME=/tmp`: config and audit log paths resolve from
+  `$HOME` at startup, and an arbitrary `--user uid:gid` has no home
+  directory otherwise.
+- CI ([`build-image.yml`](../.github/workflows/build-image.yml)) runs
+  [`verify.sh`](../verify.sh) inside the exact pushed digest before `latest`
+  is applied. Retention is [`.ghcr-tidy.yaml`](../.ghcr-tidy.yaml) via
+  `tidy-ghcr.yml`.
+
 ## Testing
 
 ```sh

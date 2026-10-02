@@ -1,0 +1,105 @@
+name: tidy-ghcr
+run-name: Tidy GHCR
+
+# Thin caller of the shared ghcr-tidy pipeline (see
+# pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml for the retention
+# model: reachability-based delete set, grace window, breaker, volume
+# alarm, canary and post-apply verification).
+#
+# SCHEDULE-VS-DISPATCH TYPING HAZARD: on a `schedule` event the top-level
+# `inputs` context is EMPTY, not defaulted: `workflow_dispatch` input
+# defaults are never applied to a scheduled run of the CALLER (this file).
+# So `inputs.apply`/`inputs.budget`/etc. all read as null/empty here.
+# Every expression below is written to produce a real, correctly-typed
+# value on BOTH events: `github.event_name == 'schedule'` is tested
+# directly rather than ever using `inputs.x || 'default'`-style fallback,
+# because `false` is falsy in Actions expressions and such a fallback
+# would silently coerce an explicit `apply: false` dispatch into the
+# schedule default. `budget`/`baseline`/`package` are plain `type: string`
+# on the callee, so a scheduled run's `''` for these still needs the
+# event-aware ternary below: an empty string is a valid *value* but not
+# the value we want on schedule.
+#
+# BASELINE: the volume alarm is left off on every scheduled run (see
+# below). `baseline: 0` would instead mean "refuse any plan that deletes
+# anything"; there's no numeric sentinel for "off", so leaving it blank
+# is the deliberate way to disable it.
+#
+# CREDENTIAL: the shared workflow reads `secrets.GITHUB_TOKEN` directly
+# from the `secrets` context rather than as a declared `workflow_call`
+# secret, so `secrets: inherit` below is required for it to find it (an
+# explicit `secrets:` block cannot pass a secret the callee didn't
+# declare). The token needs `packages: write` on the callee's job, which
+# in turn means this caller's own `permissions:` block below must grant
+# `packages: write` too, since a reusable workflow can never hold a
+# permission its caller withheld. No PAT is used: this repo's packages
+# are linked to the workflow that published them, and GITHUB_TOKEN has
+# been proven sufficient to delete a version it published (HTTP 204).
+on:
+  schedule:
+    # All pyck-ai image repos share the same self-hosted runners, so GHCR
+    # retention is staggered across them: baseimages 03:00, github-runner
+    # 04:00, flutter-rfw 05:00, this repo 05:15. Keep that spacing when
+    # adding a repo, and check the others before picking a slot.
+    - cron: '15 5 * * *'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually delete (omit for a dry run / plan only)'
+        type: boolean
+        default: false
+      budget:
+        description: 'Maximum number of version-deletion attempts this run may make'
+        type: string
+        default: '200'
+      package:
+        description: 'Restrict to one configured package (matches a packages[].match entry in .ghcr-tidy.yaml); empty = all'
+        type: string
+        default: ''
+      baseline:
+        description: 'Trailing baseline for the volume alarm (leave blank to disable it for this run; scheduled runs never set one, see the module header)'
+        type: string
+        default: ''
+      delete-broken-roots:
+        description: 'Remediate a keep-root whose subtree has a PROVEN not-found descendant (confirmed registry 404), so it can be planned instead of skipped. Not a routine setting: only enable it against a package known to have this corruption. Forced off on schedule by the shared workflow; workflow_dispatch only.'
+        type: boolean
+        default: false
+
+# Never cancel a running tidy job: partial cleanup is worse than no
+# cleanup. The shared workflow deliberately declares no concurrency of its
+# own (a duplicate group between caller and callee would deadlock the run
+# with zero jobs), so this caller owns it.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  tidy:
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@e11b1f384df6cf1a71b5ace1f741f7717880b866 # v0.1.0
+    with:
+      # Plain OR of two real booleans (never a `||` fallback on
+      # `inputs.apply` itself); see the module header's typing-hazard
+      # comment.
+      apply: ${{ github.event_name == 'schedule' || inputs.apply == true }}
+      budget: ${{ github.event_name == 'schedule' && '200' || inputs.budget }}
+      package: ${{ inputs.package }}
+      # No baseline on schedule: this repo's two packages are brand new as
+      # of the day this workflow was added, so there is no build history
+      # to know a trustworthy steady-state nightly deletion count. An arbitrary
+      # number here would either false-trip on ordinary early churn or be
+      # set so high it catches nothing. Revisit once a few weeks of
+      # nightly runs establish a real baseline (see baseimages' `510`,
+      # which came from that repo's own history, not a copied number).
+      # `inputs.baseline` still passes through on workflow_dispatch so a
+      # human can opt in explicitly for one run.
+      baseline: ${{ inputs.baseline }}
+      # AND of two real booleans (never `inputs.delete-broken-roots ||
+      # ...`); forced to `false` outright on `schedule`, matching this
+      # repo's decision to never let an unattended run remediate broken
+      # roots.
+      delete-broken-roots: ${{ github.event_name != 'schedule' && inputs.delete-broken-roots == true }}
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+    secrets: inherit

@@ -1,0 +1,42 @@
+version: '3'
+
+vars:
+  REGISTRY: '{{.REGISTRY | default "ghcr.io/pyck-ai"}}'
+  CI: '{{.CI | default ""}}'
+
+  _BAKE_BUILDARGS:
+    sh: >-
+      cat buildargs.conf | grep -v '^#' | grep -v '^$' | sed 's/^/--set *.args./' | tr '\n' ' '
+
+  _HOST_ARCH:
+    sh: >-
+      uname -m
+
+dotenv:
+  - buildargs.conf
+
+tasks:
+  setup:
+    desc: "Create the 'jev-cli' buildx builder (run once per machine)"
+    cmds:
+      - |
+        docker buildx inspect jev-cli 2>/dev/null || \
+        docker buildx create \
+          --name=jev-cli \
+          --driver=docker-container
+
+  build:
+    desc: "Build the image using Docker Bake and load it locally. Args: ARCH=arm64"
+    cmds:
+      - >-
+        docker buildx bake
+        --pull
+        --builder jev-cli
+        {{if not .CI}}--set {{ (printf "*.platform=linux/%s" (.ARCH | default ._HOST_ARCH)) | q}} --load{{end}}
+        --set "*.cache-from="
+        --set "*.cache-to="
+        --var REGISTRY={{ .REGISTRY | q}}
+        {{._BAKE_BUILDARGS}}
+        {{if .CLI_VERBOSE}}--debug{{end}}
+        {{.BAKE_EXTRA}}
+        {{.CLI_ARGS}}
