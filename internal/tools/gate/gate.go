@@ -110,21 +110,21 @@ type Usage struct {
 // EvidenceItem is one item of gate's (always structured, unlike
 // jev_verify's dual-shape Evidence) evidence list.
 type EvidenceItem struct {
-	ID   string `json:"id" jsonschema:"Short, unique identifier for this evidence item within this call, e.g. \"e1\". Must be non-empty and unique among all items in evidence[]."`
-	Text string `json:"text" jsonschema:"The evidence text itself (e.g. a doc excerpt or log line) that claims[] are checked against. Must be non-empty; the combined length of every evidence[].text is capped at 200,000 characters."`
+	ID   string `json:"id" jsonschema:"Unique evidence id."`
+	Text string `json:"text" jsonschema:"Evidence text claims are checked against."`
 }
 
 // GateInput is the jev_gate tool's input schema: jev_review's input
 // (request/diff/tests plus thresholds) plus claims/evidence.
 type GateInput struct {
-	Request        string             `json:"request" jsonschema:"The original request/task the diff is meant to satisfy. Capped at 50,000 characters."`
-	Diff           string             `json:"diff" jsonschema:"The diff to review. Capped at 50,000 characters."`
-	Tests          string             `json:"tests,omitempty" jsonschema:"Optional test output/description. Capped at 50,000 characters."`
-	Claims         []string           `json:"claims" jsonschema:"Factual claims to verify strictly against evidence (never against request/diff/tests), e.g. [\"the cache is thread-safe\"]. 1-16 non-empty claims."`
-	Evidence       []EvidenceItem     `json:"evidence" jsonschema:"Evidence items claims[] are checked against; each needs id and text (see EvidenceItem). 1-16 items; combined evidence[].text capped at 200,000 characters."`
-	AutoAccept     float64            `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for both review rubrics and claim verification. Default 0.8."`
-	CompositeFloor float64            `json:"composite_floor,omitempty" jsonschema:"Minimum weighted review composite in [0,1] for the review half to be 'auto'. Default 0.7."`
-	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Optional override of the default review rubric weights (correctness 0.4, spec_match 0.3, test_gap 0.15, blast_radius 0.15); normalized to sum to 1."`
+	Request        string             `json:"request" jsonschema:"Original task the diff should satisfy; max 50,000 chars."`
+	Diff           string             `json:"diff" jsonschema:"Diff to review; max 50,000 chars."`
+	Tests          string             `json:"tests,omitempty" jsonschema:"Test output/description; max 50,000 chars."`
+	Claims         []string           `json:"claims" jsonschema:"1-16 factual claims, verified against evidence only."`
+	Evidence       []EvidenceItem     `json:"evidence" jsonschema:"1-16 {id, text} items; combined text max 200,000 chars."`
+	AutoAccept     float64            `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for rubrics and claims. Default 0.8."`
+	CompositeFloor float64            `json:"composite_floor,omitempty" jsonschema:"Minimum review composite in [0,1] for auto. Default 0.7."`
+	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Rubric weights override; default correctness 0.4, spec_match 0.3, test_gap 0.15, blast_radius 0.15."`
 }
 
 // ClaimResult is one claim's verification result, evidence-only (see
@@ -193,15 +193,10 @@ func NewGateHandler(client *openrouter.Client, cfg config.Config, tracker *budge
 }
 
 func init() {
-	description := "jev_review's four-rubric diff assessment PLUS verifying specific factual claims " +
-		"against supplied evidence (evidence-only, never against request/diff/tests) -- all in one " +
-		"call. Use jev_gate (not jev_review) when you also have claims to fact-check; use jev_review " +
-		"alone otherwise. action=\"auto\" only if the review half is auto AND every claim verifies " +
-		"auto; a confidently contradicted claim forces action=\"escalate\" regardless of anything " +
-		"else. Example: {\"request\": \"add caching\", \"diff\": \"+func Cache() {}\", \"claims\": " +
-		"[\"the cache is thread-safe\"], \"evidence\": [{\"id\": \"e1\", \"text\": \"Cache holds no " +
-		"shared mutable state.\"}]}. Returns action (auto/review/escalate), the review assessment, " +
-		"and per-claim verification results; never fabricates a verdict."
+	description := "jev_review plus claim verification: assesses a diff and fact-checks claims against supplied " +
+		"evidence in one call; returns action auto/review/escalate, the review, and per-claim results. " +
+		"Use when you have claims to verify, else jev_review. A confidently contradicted claim forces " +
+		"escalate; auto needs review and every claim auto."
 	registry.Register(registry.Tool{
 		Name:        "gate",
 		MCPName:     ToolNameGate,

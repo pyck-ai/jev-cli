@@ -55,12 +55,12 @@ type Usage struct {
 
 // ReviewInput is the jev_review tool's input schema.
 type ReviewInput struct {
-	Request        string             `json:"request" jsonschema:"The original request/task the diff is meant to satisfy. Capped at 50,000 characters."`
-	Diff           string             `json:"diff" jsonschema:"The diff to review. Capped at 50,000 characters."`
-	Tests          string             `json:"tests,omitempty" jsonschema:"Optional test output/description. Capped at 50,000 characters."`
-	AutoAccept     float64            `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] every rubric must meet for action to be 'auto'. Default 0.8."`
-	CompositeFloor float64            `json:"composite_floor,omitempty" jsonschema:"Minimum weighted composite in [0,1] for action to be 'auto'. Default 0.7."`
-	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Optional override of the default rubric weights (correctness 0.4, spec_match 0.3, test_gap 0.15, blast_radius 0.15); normalized to sum to 1."`
+	Request        string             `json:"request" jsonschema:"Original task the diff should satisfy; max 50,000 chars."`
+	Diff           string             `json:"diff" jsonschema:"Diff to review; max 50,000 chars."`
+	Tests          string             `json:"tests,omitempty" jsonschema:"Test output/description; max 50,000 chars."`
+	AutoAccept     float64            `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] each rubric must meet for auto. Default 0.8."`
+	CompositeFloor float64            `json:"composite_floor,omitempty" jsonschema:"Minimum weighted composite in [0,1] for auto. Default 0.7."`
+	Weights        reviewcore.Weights `json:"weights,omitempty" jsonschema:"Rubric weights override; default correctness 0.4, spec_match 0.3, test_gap 0.15, blast_radius 0.15."`
 }
 
 // ReviewOutput is the jev_review tool's output schema. It embeds
@@ -101,13 +101,10 @@ func NewReviewHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Assess a diff against a request on four weighted rubrics (correctness, spec_match, " +
-		"test_gap, blast_radius) plus a safe-to-apply signal, and recommend action=\"auto\"/\"review\"/" +
-		"\"escalate\". Use jev_review for a general diff review; use jev_gate instead when you also " +
-		"have specific factual claims to verify against evidence. Fails closed: a malformed or " +
-		"missing rubric answer forces escalate, never a fabricated pass. Example: {\"request\": \"add " +
-		"caching\", \"diff\": \"+func Cache() {}\"}. Returns action plus each rubric's score/" +
-		"confidence, a safe_to_apply signal, and a weighted composite in [0,1]."
+	description := "Assess a diff against its request on four weighted rubrics (correctness, spec_match, test_gap, " +
+		"blast_radius) plus safe_to_apply; returns action auto/review/escalate and a composite in [0,1]. " +
+		"Use jev_gate instead when you also have factual claims to verify. Fails closed: bad rubric " +
+		"answers force escalate."
 	registry.Register(registry.Tool{
 		Name:        "review",
 		MCPName:     ToolNameReview,

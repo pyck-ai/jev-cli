@@ -92,15 +92,15 @@ type Usage struct {
 
 // Candidate is one candidate to match the query against.
 type Candidate struct {
-	ID   string `json:"id" jsonschema:"Caller-chosen unique identifier for this candidate, e.g. \"doc_3\". Required, non-empty, and must be unique among all candidates in this call; echoed back in top[].id to identify the match."`
-	Text string `json:"text" jsonschema:"The candidate's text content to compare against the query, e.g. \"Refunds are available within 30 days.\". Required and non-empty; truncated to 2000 characters before being sent to the model."`
+	ID   string `json:"id" jsonschema:"Unique candidate id, echoed in top[].id"`
+	Text string `json:"text" jsonschema:"Candidate text; truncated at 2000 chars"`
 }
 
 // MatchInput is the jev_match tool's input schema.
 type MatchInput struct {
-	Query      string      `json:"query" jsonschema:"The search query to find the best-matching candidate for, e.g. \"what is the refund policy\". Required, non-empty string."`
-	Candidates []Candidate `json:"candidates" jsonschema:"Candidates to search over. Required; 1 to 250 {id, text} objects with unique ids, e.g. [{\"id\": \"a\", \"text\": \"Refunds within 30 days.\"}]; each candidate's text is truncated at 2000 characters before being sent to the model."`
-	TopK       int         `json:"top_k,omitempty" jsonschema:"Return at most this many top candidates, sorted by probability descending, e.g. 3. Optional; omitted or <= 0 returns every candidate."`
+	Query      string      `json:"query" jsonschema:"What to find the best match for"`
+	Candidates []Candidate `json:"candidates" jsonschema:"1-250 {id, text} candidates, unique ids"`
+	TopK       int         `json:"top_k,omitempty" jsonschema:"Return at most this many top candidates; default all"`
 }
 
 // TopMatch is one candidate's probability of being the single best match.
@@ -156,13 +156,9 @@ func NewMatchHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
-	description := "Find the single best-matching candidate for a query, and whether any candidate " +
-		"actually answers it at all. Returns only the top pick(s), not a full ranking -- use " +
-		"jev_rerank instead if you need every candidate sorted by relevance. Fails closed at the " +
-		"whole-call level: a malformed model answer is status=\"invalid_response\", never a fabricated " +
-		"match. Example: " +
-		`{"query": "what is the refund policy", "candidates": [{"id": "a", "text": "Refunds within 30 days."}]}. ` +
-		"Output: top candidate(s) by probability plus exists_verdict (answered/partial/absent)."
+	description := "Find which of several TEXTS (docs, snippets, answers, records) best answers or fits a query, and " +
+		"whether any does (answered/partial/absent); returns top candidates with probabilities. Use jev_rerank " +
+		"instead for a full ordering. Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "match",
 		MCPName:     ToolNameMatch,

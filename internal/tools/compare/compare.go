@@ -107,10 +107,10 @@ type Usage struct {
 
 // CompareInput is the jev_compare tool's input schema.
 type CompareInput struct {
-	PassageA   string   `json:"passage_a" jsonschema:"First passage to compare, e.g. \"the sky is blue\". Required, must be a non-empty string; if longer than 20,000 characters it is truncated (not rejected)."`
-	PassageB   string   `json:"passage_b" jsonschema:"Second passage to compare, e.g. \"the sky is red\". Required, must be a non-empty string; if longer than 20,000 characters it is truncated (not rejected)."`
-	Aspects    []string `json:"aspects,omitempty" jsonschema:"Optional specific aspects to additionally compare the passages on, each judged independently, e.g. [\"color\", \"time of day\"]. An array of plain strings (not objects), up to 32 entries."`
-	AutoAccept float64  `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision to be 'auto' rather than 'review'. Optional, default 0.8 if omitted."`
+	PassageA   string   `json:"passage_a" jsonschema:"First passage; truncated at 20,000 chars"`
+	PassageB   string   `json:"passage_b" jsonschema:"Second passage; truncated at 20,000 chars"`
+	Aspects    []string `json:"aspects,omitempty" jsonschema:"Up to 32 extra aspects, each judged independently"`
+	AutoAccept float64  `json:"auto_accept,omitempty" jsonschema:"Confidence in (0.5, 1] needed for decision auto vs review; default 0.8"`
 }
 
 // OverallResult is the passages' overall relation.
@@ -175,14 +175,9 @@ func NewCompareHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
-	description := "Compare two whole passages' factual relation (same_fact/contradicts/" +
-		"different_facts), overall and optionally per specific aspect, using the configured SystemOne decision " +
-		"model. Use this to compare two SYMMETRIC passages/documents against each other -- use " +
-		"jev_verify instead to check specific claims against evidence (asymmetric: claim vs " +
-		"evidence), not two full passages. Fails closed: a malformed or missing answer is reported " +
-		"as status=\"invalid_response\" with decision=\"review\", never a fabricated relation. " +
-		`Example: {"passage_a": "the sky is blue", "passage_b": "the sky is red", "aspects": ["color"]}. ` +
-		"Output: overall{relation, decision} plus one {aspect, relation, decision} per aspect."
+	description := "Compare two whole passages: same_fact, contradicts or different_facts overall and per optional aspect, " +
+		"with a decision (auto/review). Use jev_verify instead to check claims against evidence. " +
+		"Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "compare",
 		MCPName:     ToolNameCompare,

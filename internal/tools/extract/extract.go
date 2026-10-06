@@ -134,16 +134,16 @@ type Usage struct {
 // Field is one named field to extract, defined by a regular expression
 // (Go/RE2 syntax) run against Document.
 type Field struct {
-	ID          string `json:"id" jsonschema:"Short, unique identifier for this field within this call, e.g. \"email\" or \"invoice_number\". Echoed back as this field's key in the output (fields[].id). Must be non-empty and unique among all fields in one call."`
-	Pattern     string `json:"pattern" jsonschema:"A Go/RE2 regular expression run against document to find this field's candidate values (RE2 syntax: no backreferences, no lookahead/lookbehind). Each distinct match, up to 20, becomes a candidate the model chooses among; zero matches yields status=\"not_found\" with no model call. Must be non-empty and a syntactically valid regex; an invalid pattern does not fail the whole call -- that field's status becomes \"invalid_pattern\" instead. Example: \"[0-9]{3}-[0-9]{4}\"."`
-	Description string `json:"description" jsonschema:"Plain-language description of what this field represents, shown to the judgment model so it can pick the correct match among candidates, e.g. \"the customer's phone number\". Must be non-empty."`
+	ID          string `json:"id" jsonschema:"Unique field id, echoed as the output key"`
+	Pattern     string `json:"pattern" jsonschema:"RE2 regex (no backreferences or lookaround); up to 20 matches become candidates; invalid gives status invalid_pattern"`
+	Description string `json:"description" jsonschema:"What the field is, shown to the model to pick among candidates"`
 }
 
 // ExtractInput is the jev_extract tool's input schema.
 type ExtractInput struct {
-	Document   string  `json:"document" jsonschema:"The document/text to extract fields from, e.g. an email, PRD, or log excerpt. Capped at 50,000 characters; longer input is silently truncated."`
-	Fields     []Field `json:"fields" jsonschema:"1-32 fields to extract; each needs id, pattern, and description (see Field's own fields for what each means). At most 20 regex matches are considered per field."`
-	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for a field's status to be 'auto' rather than 'review'. Default 0.8."`
+	Document   string  `json:"document" jsonschema:"The text itself, pasted in full (never a file path or a request to read one); truncated at 50,000 chars"`
+	Fields     []Field `json:"fields" jsonschema:"1-32 fields, each with id, pattern, description"`
+	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence in (0.5, 1] needed for status auto vs review; default 0.8"`
 }
 
 // FieldResult is one field's extraction result.
@@ -200,14 +200,10 @@ func NewExtractHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 }
 
 func init() {
-	description := "Extract named fields from unstructured text: for each field, a Go/RE2 regex finds " +
-		"candidate substrings in the document, then (only if there are candidates) the configured SystemOne decision model picks the correct one. A zero-match field costs nothing (status=\"not_found\", " +
-		"no model call); if every field has zero matches, no API call is made at all. Use this when a " +
-		"field's value can be bounded by a regex; for open-ended custom judgment questions use jev_ask " +
-		"instead. Example: {\"document\": \"Contact: a@b.com\", \"fields\": [{\"id\": \"email\", " +
-		"\"pattern\": \"[\\w.]+@[\\w.]+\", \"description\": \"the contact email\"}]}. Returns fields[] " +
-		"with id, value (or null), and status (auto/review/not_found/invalid_pattern/invalid_response); " +
-		"never fabricates a value."
+	description := "Disambiguate regex matches in text you ALREADY HAVE: per field a Go/RE2 regex finds candidates in the " +
+		"given text, then the model picks the right one. Not for reading files, editing code or general tasks. " +
+		"Returns fields[] with id, value (or null), status (auto/review/not_found/invalid_pattern/" +
+		"invalid_response); never fabricates a value. Use jev_ask for open-ended questions."
 	registry.Register(registry.Tool{
 		Name:        "extract",
 		MCPName:     ToolNameExtract,

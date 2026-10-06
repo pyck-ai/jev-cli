@@ -93,14 +93,14 @@ type Usage struct {
 
 // Candidate is one candidate to rank against the query.
 type Candidate struct {
-	ID   string `json:"id" jsonschema:"Caller-chosen identifier for this candidate, e.g. \"a\" or \"doc-1\". Required, must be a non-empty string, and must be unique among all candidates in this call; echoed back in the output ranking to identify this candidate."`
-	Text string `json:"text" jsonschema:"This candidate's text content, judged for relevance against query. Required, must be a non-empty string."`
+	ID   string `json:"id" jsonschema:"Unique candidate id, echoed in the ranking"`
+	Text string `json:"text" jsonschema:"Candidate text"`
 }
 
 // RerankInput is the jev_rerank tool's input schema.
 type RerankInput struct {
-	Query      string      `json:"query" jsonschema:"The query every candidate is scored for relevance against, e.g. \"vendor security posture\". Required, must be a non-empty string."`
-	Candidates []Candidate `json:"candidates" jsonschema:"Candidates to rank, e.g. [{\"id\": \"a\", \"text\": \"...\"}, {\"id\": \"b\", \"text\": \"...\"}]. Required, an array of 1-250 {id, text} objects, with combined text across all candidates not exceeding 100,000 characters."`
+	Query      string      `json:"query" jsonschema:"What candidates are ranked against"`
+	Candidates []Candidate `json:"candidates" jsonschema:"1-250 {id, text} candidates; combined text at most 100,000 chars"`
 }
 
 // Ranked is one candidate's position in the final descending-relevance
@@ -151,15 +151,9 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Rank a list of candidates by relevance to a query, using the configured SystemOne decision " +
-		"model. Returns EVERY candidate sorted descending by relevance, not just the top one -- use " +
-		"jev_match instead if you only need the single best match and whether anything actually " +
-		"matches at all. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +
-		"status=\"invalid_response\" and no ranking is returned at all, rather than silently treating " +
-		"a missing score as zero (which could badly distort the ordering). Example: " +
-		`{"query": "vendor security posture", "candidates": [{"id": "a", "text": "..."}, ` +
-		`{"id": "b", "text": "..."}]}. ` +
-		"Output: a ranked list of {rank, id, relevance} plus status."
+	description := "Rank 1-250 candidates by relevance to a query; returns every candidate sorted descending with " +
+		"relevance. Use jev_match instead for just the single best plus whether anything matches. " +
+		"Fails closed: any bad answer gives status=invalid_response and no ranking."
 	registry.Register(registry.Tool{
 		Name:        "rerank",
 		MCPName:     ToolNameRerank,

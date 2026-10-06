@@ -86,9 +86,9 @@ type Usage struct {
 
 // CheckInput is the jev_check tool's input schema.
 type CheckInput struct {
-	Propositions []string `json:"propositions" jsonschema:"List of standalone propositions to check, each judged independently as true or false. Required; 1 to 64 non-empty strings, e.g. [\"the invoice total is $500\"]."`
-	Context      string   `json:"context,omitempty" jsonschema:"Optional shared background/context every proposition is judged against, e.g. \"Invoice #1: total $500.00\". A plain string; omit or leave empty if no shared context is needed."`
-	AutoAccept   float64  `json:"auto_accept,omitempty" jsonschema:"Confidence threshold for a proposition's label to count as 'likely'/'unlikely' (action 'auto') rather than 'uncertain' (action 'review'). Optional; must be > 0.5 and <= 1 if set, e.g. 0.9; defaults to 0.85 when omitted or 0."`
+	Propositions []string `json:"propositions" jsonschema:"1-64 non-empty propositions, each judged independently"`
+	Context      string   `json:"context,omitempty" jsonschema:"Shared background every proposition is judged against"`
+	AutoAccept   float64  `json:"auto_accept,omitempty" jsonschema:"Confidence in (0.5, 1] needed for action auto vs review; default 0.85"`
 }
 
 // PropositionResult is one proposition's judged result.
@@ -145,13 +145,9 @@ func NewCheckHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 }
 
 func init() {
-	description := "Batch-check a list of independent true/false propositions, each judged separately " +
-		"against optional shared context. Use this for standalone propositions with no distinct " +
-		"evidence text; use jev_verify instead when checking claims against separate evidence " +
-		"(support/contradict/says_nothing). Fails closed per proposition: a malformed answer is " +
-		"status=\"invalid_response\" with action=\"review\", never a fabricated verdict. Example: " +
-		`{"propositions": ["the invoice total is $500"]}. ` +
-		"Output: one {probability, label, action} per proposition."
+	description := "Judge 1-64 standalone true/false propositions independently (optional shared context); returns " +
+		"probability, label, action for each. Use jev_verify instead for claims against evidence text, " +
+		"jev_score for a graded rubric. Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "check",
 		MCPName:     ToolNameCheck,

@@ -95,9 +95,9 @@ type Usage struct {
 // object ({"<value_or_option_id>": "<description>"}) for "noul"/"choice",
 // or a non-empty JSON array of level-description strings for "score".
 type AskQuestion struct {
-	Type         string `json:"type" jsonschema:"One of \"noul\" (probability that a statement is true), \"choice\" (pick exactly one of several options), or \"score\" (place on an ordered scale)."`
-	Instructions string `json:"instructions" jsonschema:"The question to answer about state, e.g. \"Does the PRD state the customer impact?\"."`
-	Criteria     any    `json:"criteria" jsonschema:"Required and non-empty; shape depends on type. noul: an object mapping the two answers to descriptions, exactly {\"true\": \"<when true>\", \"false\": \"<when false>\"}. choice: an object mapping each option id to its description, e.g. {\"auth\": \"authentication gap\", \"perf\": \"performance gap\"}; the answer is one of these ids (there is no \"options\" key or list). score: an array of level descriptions, lowest first, e.g. [\"missing\", \"partial\", \"complete\"]; the answer is a 0-based index into this array."`
+	Type         string `json:"type" jsonschema:"noul (is a statement true), choice (pick one option), or score (ordered scale)."`
+	Instructions string `json:"instructions" jsonschema:"The question to answer about state."`
+	Criteria     any    `json:"criteria" jsonschema:"Non-empty, by type. noul: {\"true\": \"<desc>\", \"false\": \"<desc>\"}. choice: {\"<option id>\": \"<desc>\", ...}. score: [\"<lowest level>\", ..., \"<highest>\"]."`
 }
 
 // AskInput is the jev_ask tool's input schema.
@@ -105,8 +105,8 @@ type AskInput struct {
 	// State is a string, or an arbitrary JSON object/array of related
 	// context -- matching SystemOne's own "state" field flexibility (see
 	// internal/openrouter.Request.State's doc comment).
-	State     any                    `json:"state" jsonschema:"Text or data to be judged: a string, or an arbitrary JSON object/array of related context."`
-	Questions map[string]AskQuestion `json:"questions" jsonschema:"Named SystemOne questions to ask in a single call, keyed by caller-chosen id. Capped at 64 questions."`
+	State     any                    `json:"state" jsonschema:"Text or JSON data to be judged."`
+	Questions map[string]AskQuestion `json:"questions" jsonschema:"Named questions keyed by caller-chosen id; max 64."`
 }
 
 // AskAnswer is one requested question's parsed (or fail-closed) answer.
@@ -161,18 +161,12 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 }
 
 func init() {
-	description := "Escape hatch: ask the configured SystemOne decision model an arbitrary set of named " +
-		"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
-		"almost 1:1. Every question needs type, instructions and a non-empty criteria whose shape " +
-		"depends on type. Example questions: " +
-		`{"impact_stated": {"type": "noul", "instructions": "Does the PRD state the customer impact?", ` +
-		`"criteria": {"true": "customer impact is stated", "false": "customer impact is missing"}}, ` +
-		`"top_gap": {"type": "choice", "instructions": "What is the biggest gap?", ` +
-		`"criteria": {"scope": "unclear scope", "metrics": "no success metrics", "risks": "risks not covered"}}, ` +
-		`"completeness": {"type": "score", "instructions": "How complete is the PRD?", ` +
-		`"criteria": ["missing", "partial", "complete"]}}. ` +
-		"Rejects a malformed question before sending, and fails closed per answer: a malformed or " +
-		"missing answer for one key is status=\"invalid_response\", every other key's valid answer is unaffected."
+	description := "Ask mixed noul/choice/score questions about one shared state in one call, or a custom set no " +
+		"other tool covers; not for a single best-option pick (jev_decide) or classes (jev_classify). " +
+		"Questions: " +
+		`{"k1": {"type": "noul", "instructions": "...", "criteria": {"true": "...", "false": "..."}}, ` +
+		`"k2": {"type": "choice", "instructions": "...", "criteria": {"a": "...", "b": "..."}}, ` +
+		`"k3": {"type": "score", "instructions": "...", "criteria": ["low", "high"]}}.`
 	registry.Register(registry.Tool{
 		Name:        "ask",
 		MCPName:     ToolNameAsk,

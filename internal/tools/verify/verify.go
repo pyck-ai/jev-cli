@@ -100,17 +100,17 @@ type Usage struct {
 // EvidenceItem is one item of a structured (as opposed to single-blob)
 // Evidence array.
 type EvidenceItem struct {
-	ID   string `json:"id" jsonschema:"Caller-chosen identifier for this evidence item, e.g. \"doc1\". Any non-empty string; only needs to be unique enough for you to recognize it, it is not otherwise validated."`
-	Text string `json:"text" jsonschema:"The evidence text itself, e.g. \"Invoice #1: total $500.00\". Must not be empty."`
+	ID   string `json:"id" jsonschema:"Evidence item id (any non-empty string)"`
+	Text string `json:"text" jsonschema:"Evidence text"`
 }
 
 // VerifyInput is the jev_verify tool's input schema.
 type VerifyInput struct {
-	Claims []string `json:"claims" jsonschema:"List of factual claims to verify against evidence, each judged independently. Required; 1 to 64 non-empty strings, e.g. [\"the invoice total is $500\"]."`
+	Claims []string `json:"claims" jsonschema:"1-64 non-empty claims, each judged independently"`
 	// Evidence is a single text blob (JSON string), or a list of
 	// {id, text} items (JSON array of objects) -- see package doc comment.
-	Evidence   any     `json:"evidence" jsonschema:"Evidence to check claims against. Required; exactly one of two shapes: (1) a single string of evidence text, e.g. \"Invoice #1: total $500.00\"; or (2) an array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]. Do not pass a number, boolean, or a bare object."`
-	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence threshold for a claim's action to be 'auto' instead of 'review'. Optional; must be > 0.5 and <= 1 if set, e.g. 0.9; defaults to 0.8 when omitted or 0."`
+	Evidence   any     `json:"evidence" jsonschema:"A string, or an array of {id, text} objects"`
+	AutoAccept float64 `json:"auto_accept,omitempty" jsonschema:"Confidence in (0.5, 1] needed for action auto vs review; default 0.8"`
 }
 
 // ClaimResult is one claim's verification result.
@@ -162,13 +162,9 @@ func NewVerifyHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Batch-verify a list of claims against separately supplied evidence: each claim is " +
-		"independently judged supports/contradicts/says_nothing. Use this when you have evidence text " +
-		"to check claims against; use jev_check instead for standalone true/false propositions with no " +
-		"separate evidence. Fails closed per claim: a malformed model answer is " +
-		"status=\"invalid_response\" with action=\"review\", never a fabricated verdict. Example: " +
-		`{"claims": ["the invoice total is $500"], "evidence": "Invoice #1: total $500.00"}. ` +
-		"Output: one {verdict, confidence, action} per claim."
+	description := "Check 1-64 claims against evidence text, each judged independently as supports, contradicts or " +
+		"says_nothing; returns verdict, confidence, action per claim. Use jev_check instead for standalone " +
+		"propositions without evidence. Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "verify",
 		MCPName:     ToolNameVerify,

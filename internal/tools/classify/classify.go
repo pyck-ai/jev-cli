@@ -85,23 +85,23 @@ type Usage struct {
 
 // Item is one item to classify.
 type Item struct {
-	ID   string `json:"id" jsonschema:"Caller-chosen identifier for this item, e.g. \"i1\". Required, must be a non-empty string, and must be unique among all items in this call; echoed back in the output to identify this item's result."`
-	Text string `json:"text" jsonschema:"This item's text content to classify, e.g. \"it crashes on startup\". Required, must be a non-empty string."`
+	ID   string `json:"id" jsonschema:"Unique id; echoed in the result."`
+	Text string `json:"text" jsonschema:"Text to classify."`
 }
 
 // Class is one candidate classification.
 type Class struct {
-	ID          string `json:"id" jsonschema:"Caller-chosen identifier for this class, e.g. \"bug\". Required, must be a non-empty string, and must be unique among all classes in this call; this is the value returned as an item's classification."`
-	Description string `json:"description" jsonschema:"What this class means, so the model can tell it apart from the other classes, e.g. \"a defect report\". Required, must be a non-empty string."`
+	ID          string `json:"id" jsonschema:"Unique id; returned as an item's classification."`
+	Description string `json:"description" jsonschema:"What the class means."`
 }
 
 // ClassifyInput is the jev_classify tool's input schema.
 type ClassifyInput struct {
-	Purpose       string  `json:"purpose,omitempty" jsonschema:"Optional shared context for why these items are being classified, e.g. \"triaging incoming support tickets\"."`
-	Items         []Item  `json:"items" jsonschema:"Items to classify, e.g. [{\"id\": \"i1\", \"text\": \"...\"}]. Required, an array of 1-64 {id, text} objects."`
-	Classes       []Class `json:"classes" jsonschema:"The fixed set of classes every item is classified into, e.g. [{\"id\": \"bug\", \"description\": \"a defect report\"}, {\"id\": \"feature\", \"description\": \"a feature request\"}]. Required, an array of 1-250 {id, description} objects; len(items)*len(classes) must not exceed 8000."`
-	AutoAccept    float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision to be 'auto' rather than 'review'. Optional, default 0.85 if omitted."`
-	MinimumMargin float64 `json:"minimum_margin,omitempty" jsonschema:"Minimum gap in [0,1] between the top and runner-up class probability for decision to be 'auto'. Optional, default 0.5 if omitted."`
+	Purpose       string  `json:"purpose,omitempty" jsonschema:"Shared context for the classification."`
+	Items         []Item  `json:"items" jsonschema:"1-64 {id, text} items; len(items)*len(classes) <= 8000."`
+	Classes       []Class `json:"classes" jsonschema:"1-250 {id, description} classes; each item gets exactly one."`
+	AutoAccept    float64 `json:"auto_accept,omitempty" jsonschema:"Confidence bar in (0.5, 1] for decision auto. Default 0.85."`
+	MinimumMargin float64 `json:"minimum_margin,omitempty" jsonschema:"Minimum top-vs-runner-up probability gap in [0,1] for auto. Default 0.5."`
 }
 
 // ItemResult is one item's classification result.
@@ -154,16 +154,9 @@ func NewClassifyHandler(client *openrouter.Client, cfg config.Config, tracker *b
 }
 
 func init() {
-	description := "Classify each of a list of items into exactly one of a fixed set of classes, using " +
-		"the configured SystemOne decision model. Use this for bulk categorization: many items, each " +
-		"independently assigned one class -- use jev_decide instead when picking the single best of " +
-		"2-6 options for one specific decision, not categorizing a batch of items. Fails closed per " +
-		"item: a malformed or missing answer is reported as status=\"invalid_response\" with " +
-		"decision=\"review\", never a fabricated classification. Example: " +
-		`{"items": [{"id": "i1", "text": "it crashes on startup"}], ` +
-		`"classes": [{"id": "bug", "description": "a defect report"}, ` +
-		`{"id": "feature", "description": "a feature request"}]}. ` +
-		"Output: one {classification, confidence, decision} result per item."
+	description := "Classify each of many items into exactly one of a fixed set of classes; returns " +
+		"{classification, confidence, decision} per item. For one pick among 2-6 options use " +
+		"jev_decide. Fails closed per item: bad answers are status=invalid_response, never guessed."
 	registry.Register(registry.Tool{
 		Name:        "classify",
 		MCPName:     ToolNameClassify,

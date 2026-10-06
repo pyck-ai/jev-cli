@@ -80,10 +80,10 @@ const (
 // "default weights", so -- consistent with every other threshold in this
 // batch of tools -- they are caller-overridable; see Weights.Normalize.
 type Weights struct {
-	Correctness float64 `json:"correctness,omitempty" jsonschema:"Weight for the correctness rubric (how well the diff does what the request asked). Non-negative; all four weights are normalized to sum to 1, so only their ratio matters. Default (when weights is omitted or all-zero): 0.4."`
-	SpecMatch   float64 `json:"spec_match,omitempty" jsonschema:"Weight for the spec_match rubric (how closely the diff follows the request's stated spec/requirements). Non-negative; normalized together with the other three. Default: 0.3."`
-	TestGap     float64 `json:"test_gap,omitempty" jsonschema:"Weight for the test_gap rubric (how much of the changed behavior is left untested; a higher weight penalizes gaps more). Non-negative; normalized together with the other three. Default: 0.15."`
-	BlastRadius float64 `json:"blast_radius,omitempty" jsonschema:"Weight for the blast_radius rubric (how far the change could affect things beyond its immediate target; a higher weight penalizes a larger radius more). Non-negative; normalized together with the other three. Default: 0.15."`
+	Correctness float64 `json:"correctness,omitempty" jsonschema:"Relative weight, >=0; the four are normalized. Default 0.4."`
+	SpecMatch   float64 `json:"spec_match,omitempty" jsonschema:"Relative weight, >=0. Default 0.3."`
+	TestGap     float64 `json:"test_gap,omitempty" jsonschema:"Relative weight, >=0. Default 0.15."`
+	BlastRadius float64 `json:"blast_radius,omitempty" jsonschema:"Relative weight, >=0. Default 0.15."`
 }
 
 // DefaultWeights returns the project brief's literal defaults:

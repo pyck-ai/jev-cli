@@ -134,22 +134,22 @@ type Usage struct {
 
 // Candidate is one candidate option for the decision.
 type Candidate struct {
-	ID          string `json:"id" jsonschema:"Caller-chosen identifier for this candidate, e.g. \"a\". Required, must be a non-empty string, must be unique among all candidates in this call, and must not be one of the reserved escape-hatch ids (\"ask_user\", \"investigate\", \"none\"); this is the value returned as recommendation.selected."`
-	Description string `json:"description" jsonschema:"This candidate option, described in enough detail to evaluate it, e.g. \"Vendor A\". Required, must be a non-empty string."`
+	ID          string `json:"id" jsonschema:"Unique id, not ask_user/investigate/none; returned as recommendation.selected."`
+	Description string `json:"description" jsonschema:"Option described well enough to evaluate."`
 }
 
 // DecideInput is the jev_decide tool's input schema.
 type DecideInput struct {
-	Decision     string      `json:"decision" jsonschema:"The decision to be made, e.g. \"which vendor to pick\". Required, must be a non-empty string."`
-	Evidence     string      `json:"evidence" jsonschema:"Evidence relevant to the decision, e.g. \"vendor A is cheaper, vendor B is faster\". Required, must be a non-empty string."`
-	Priorities   string      `json:"priorities" jsonschema:"Priorities/tradeoffs that should guide the decision, e.g. \"cost matters most\". Required, must be a non-empty string."`
-	Candidates   []Candidate `json:"candidates" jsonschema:"Candidate options, e.g. [{\"id\": \"a\", \"description\": \"Vendor A\"}, {\"id\": \"b\", \"description\": \"Vendor B\"}]. Required, an array of 2-6 {id, description} objects."`
-	Requirements []string    `json:"requirements,omitempty" jsonschema:"Optional requirements to check every candidate against, e.g. [\"must support SSO\"]. An array of plain strings (not objects), up to 20 entries."`
+	Decision     string      `json:"decision" jsonschema:"The decision to make."`
+	Evidence     string      `json:"evidence" jsonschema:"Evidence relevant to the decision."`
+	Priorities   string      `json:"priorities" jsonschema:"Tradeoffs that should guide the choice."`
+	Candidates   []Candidate `json:"candidates" jsonschema:"2-6 options, e.g. [{\"id\":\"a\",\"description\":\"...\"}]."`
+	Requirements []string    `json:"requirements,omitempty" jsonschema:"Array of plain strings (not objects), up to 20, e.g. [\"must support SSO\"]; each is checked against every candidate."`
 	// EscapeHatches is a *bool (not bool) specifically so this handler can
 	// tell "omitted" (nil -> defaults to true) apart from "explicitly
 	// false": a plain bool field cannot distinguish those two cases after
 	// JSON unmarshaling, since both leave the Go field at its zero value.
-	EscapeHatches *bool `json:"escape_hatches,omitempty" jsonschema:"Whether to offer ask_user/investigate/none as additional pickable options, so the model can decline to choose any real candidate. Optional boolean, default true if omitted."`
+	EscapeHatches *bool `json:"escape_hatches,omitempty" jsonschema:"Offer ask_user/investigate/none as extra options. Default true."`
 }
 
 // Recommendation is jev_decide's main recommendation.
@@ -211,17 +211,10 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Recommend which of 2-6 candidate options best satisfies a decision, given evidence " +
-		"and priorities, with optional escape hatches (ask_user/investigate/none) and optional " +
-		"per-requirement checks, using the configured SystemOne decision model. Use this to pick ONE best " +
-		"option for a specific decision -- use jev_classify instead for bulk categorization of many " +
-		"items into fixed classes. Fails closed: a malformed or missing answer is " +
-		"status=\"invalid_response\" (recommendation) or answer=\"invalid_response\" (a requirement " +
-		"check), never fabricated. Example: " +
-		`{"decision": "which vendor to pick", "evidence": "A is cheaper, B is faster", ` +
-		`"priorities": "cost matters most", "candidates": [{"id": "a", "description": "Vendor A"}, ` +
-		`{"id": "b", "description": "Vendor B"}]}. ` +
-		"Output: recommendation{selected, escaped, confidence} plus optional checks."
+	description := "Choose a course of action among 2-6 options for one decision (which fix, approach, design or " +
+		"vendor is best), with a probability per option; call this instead of judging yourself. " +
+		"For which text best answers a query use jev_match; for many items into fixed classes use " +
+		"jev_classify. Fails closed: bad answers are status=invalid_response, never guessed."
 	registry.Register(registry.Tool{
 		Name:        "decide",
 		MCPName:     ToolNameDecide,
