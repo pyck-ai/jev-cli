@@ -5,11 +5,44 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/registry"
 )
+
+func TestMain(m *testing.M) {
+	setSchemaCompat()
+	os.Exit(m.Run())
+}
+
+// TestSliceFieldsAreTypedArray guards eval fidelity: the real binary sets
+// JSONSCHEMAGODEBUG=typeschemasnull=1, so MCP clients see slices as plain
+// "array", never ["null","array"].
+func TestSliceFieldsAreTypedArray(t *testing.T) {
+	fns, err := loadTools(context.Background(), "jev_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fns {
+		if bareName(f.Name, "jev_") != "decide" {
+			continue
+		}
+		props, _ := f.Parameters["properties"].(map[string]any)
+		for _, field := range []string{"candidates", "requirements"} {
+			p, ok := props[field].(map[string]any)
+			if !ok {
+				t.Fatalf("decide has no %s property", field)
+			}
+			if p["type"] != "array" {
+				t.Errorf("decide.%s type = %v, want \"array\"", field, p["type"])
+			}
+		}
+		return
+	}
+	t.Fatal("jev_decide not in tool list")
+}
 
 func TestVerdictFor(t *testing.T) {
 	c := Case{Ideal: "decide", Acceptable: []string{"ask"}}
@@ -191,6 +224,21 @@ func TestParseResponse(t *testing.T) {
 	}
 }
 
+func TestBuildTrialTruncated(t *testing.T) {
+	c := Case{ID: "x", Ideal: "decide"}
+	trunc := buildTrial(c, "m", 1, Observation{Tool: "none", FinishReason: "length"}, nil, nil)
+	if trunc.Verdict != VerdictTruncated || trunc.Acceptable {
+		t.Errorf("no call + length: verdict=%s acceptable=%v", trunc.Verdict, trunc.Acceptable)
+	}
+	if got := buildTrial(c, "m", 1, Observation{Tool: "none", FinishReason: "stop"}, nil, nil).Verdict; got != VerdictNone {
+		t.Errorf("no call + stop: verdict=%s, want none", got)
+	}
+	// A tool call cut off by length is still a call, scored normally.
+	if got := buildTrial(c, "m", 1, Observation{Tool: "decide", Args: map[string]any{}, FinishReason: "length"}, nil, map[string]map[string]any{"decide": {}}).Verdict; got != VerdictIdeal {
+		t.Errorf("call + length: verdict=%s, want ideal", got)
+	}
+}
+
 func TestEndpointRoute(t *testing.T) {
 	e := Endpoint{BaseURL: "http://p:1/"}
 	cases := map[string]string{
@@ -246,15 +294,22 @@ func TestSummarize(t *testing.T) {
 		{CaseID: "c", Model: "m", Chosen: "ask", Ideal: "check", Verdict: VerdictEscape, SchemaValid: &yes},
 		{CaseID: "d", Model: "m", Chosen: "none", Ideal: "score", Verdict: VerdictNone},
 		{CaseID: "e", Model: "m", Chosen: "none", Verdict: VerdictError, Error: "boom"},
+		{CaseID: "f", Model: "m", Chosen: "none", Ideal: "check", Verdict: VerdictTruncated, FinishReason: "length"},
 	}
 	rep := summarize(trials)
 	if len(rep.Models) != 1 {
 		t.Fatalf("models = %d", len(rep.Models))
 	}
 	s := rep.Models[0]
-	if s.Trials != 4 || s.Errors != 1 {
-		t.Errorf("trials=%d errors=%d", s.Trials, s.Errors)
+	if s.Trials != 5 || s.NEffective != 4 || s.Errors != 1 || s.Truncated != 1 {
+		t.Errorf("trials=%d n_eff=%d errors=%d truncated=%d", s.Trials, s.NEffective, s.Errors, s.Truncated)
 	}
+	check0 := func(name string, got, want float64) {
+		if got != want {
+			t.Errorf("%s = %v, want %v", name, got, want)
+		}
+	}
+	check0("trunc", s.TruncPct, 20)
 	check := func(name string, got, want float64) {
 		if got != want {
 			t.Errorf("%s = %v, want %v", name, got, want)
@@ -265,7 +320,7 @@ func TestSummarize(t *testing.T) {
 	check("escape", s.EscapePct, 25)
 	check("none", s.NonePct, 25)
 	check("schema", s.SchemaPct, 100*2.0/3.0)
-	if len(rep.Confusion) != 2 { // escape + none
+	if len(rep.Confusion) != 2 { // escape + none; truncated is not a pick
 		t.Errorf("confusion = %+v", rep.Confusion)
 	}
 }

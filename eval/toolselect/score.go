@@ -13,6 +13,10 @@ const (
 	VerdictNone       = "none"       // no tool call
 	VerdictWrong      = "wrong"      // any other tool (or an unknown name)
 	VerdictError      = "error"      // request failed; excluded from rates
+	// VerdictTruncated: no tool call and finish_reason "length" (max_tokens hit
+	// before the model acted). Reported as trunc%, excluded from the
+	// ideal/accept/escape/none denominators (n_effective).
+	VerdictTruncated = "truncated"
 )
 
 // verdictFor scores a bare tool name ("none" for no call) against a case.
@@ -137,8 +141,11 @@ type Trial struct {
 // ModelStats is the per-model aggregate.
 type ModelStats struct {
 	Model       string  `json:"model"`
-	Trials      int     `json:"trials"` // scored trials (errors excluded)
+	Trials      int     `json:"trials"`      // scored trials (errors excluded, truncated included)
+	NEffective  int     `json:"n_effective"` // trials minus truncated: the denominator of every rate but trunc%
 	Errors      int     `json:"errors"`
+	Truncated   int     `json:"truncated"`
+	TruncPct    float64 `json:"trunc_pct"` // truncated / trials
 	IdealPct    float64 `json:"ideal_pct"`
 	AcceptPct   float64 `json:"acceptable_pct"` // ideal + acceptable
 	EscapePct   float64 `json:"escape_pct"`
@@ -195,6 +202,8 @@ func summarize(trials []Trial) Report {
 		a.Trials++
 		a.latency += t.LatencyMs
 		switch t.Verdict {
+		case VerdictTruncated:
+			a.Truncated++
 		case VerdictIdeal:
 			a.ideal++
 			a.accept++
@@ -211,7 +220,7 @@ func summarize(trials []Trial) Report {
 				a.valid++
 			}
 		}
-		if t.Verdict != VerdictIdeal && t.Verdict != VerdictAcceptable {
+		if t.Verdict != VerdictIdeal && t.Verdict != VerdictAcceptable && t.Verdict != VerdictTruncated {
 			k := [3]string{t.Model, t.CaseID, t.Chosen}
 			if conf[k] == nil {
 				conf[k] = &Confusion{Model: t.Model, CaseID: t.CaseID, Ideal: t.Ideal, Chosen: t.Chosen}
@@ -223,10 +232,12 @@ func summarize(trials []Trial) Report {
 	for _, m := range order {
 		a := byModel[m]
 		s := a.ModelStats
-		s.IdealPct = pct(a.ideal, a.Trials)
-		s.AcceptPct = pct(a.accept, a.Trials)
-		s.EscapePct = pct(a.escape, a.Trials)
-		s.NonePct = pct(a.none, a.Trials)
+		s.NEffective = a.Trials - a.Truncated
+		s.TruncPct = pct(a.Truncated, a.Trials)
+		s.IdealPct = pct(a.ideal, s.NEffective)
+		s.AcceptPct = pct(a.accept, s.NEffective)
+		s.EscapePct = pct(a.escape, s.NEffective)
+		s.NonePct = pct(a.none, s.NEffective)
 		s.SchemaPct = pct(a.valid, a.called)
 		if a.Trials > 0 {
 			s.MeanLatency = float64(a.latency) / float64(a.Trials)

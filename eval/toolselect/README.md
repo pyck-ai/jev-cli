@@ -22,7 +22,7 @@ go run ./eval/toolselect --show-tools | jq '.[].name'                       # to
 | `--concurrency` | 4 | parallel requests |
 | `--timeout` | 90s | per request; 429/5xx are retried twice |
 | `--prefix` | `jev_` | host-added prefix; opencode shows `jev_jev_ask` |
-| `--max-tokens` | 2048 | headroom for reasoning models |
+| `--max-tokens` | 4096 | headroom for reasoning models |
 | `--base-url`, `--api-key-env` | `$PYCKLLM_BASE_URL` or `http://127.0.0.1:53986`, `PYCKLLM_API_KEY` | endpoint and key env var |
 | `--openrouter` | off | base `https://openrouter.ai/api/v1`, key `OPENROUTER_API_KEY`, every model on `/chat/completions` |
 | `--out` | `/tmp/opencode/jev-eval/runs/<timestamp>.jsonl` | one JSON line per trial; never in the repo |
@@ -33,7 +33,7 @@ Routing on the proxy: ids starting `anthropic/` or `~anthropic/` go to `<base>/v
 
 ## Tool list fidelity
 
-`tools.go` registers every tool from `internal/registry` on an in-process MCP server (zero-value `registry.Deps`; handlers are never called), connects an in-memory client, calls `tools/list`, and converts each tool to an OpenAI function: `name = prefix + name`, `parameters = inputSchema`. Descriptions are always the current code. Add a tool package and blank-import it in `tools.go` (same as `cmd/jev/main.go`); the unit test fails if a registered tool is missing from the list.
+`tools.go` registers every tool from `internal/registry` on an in-process MCP server (zero-value `registry.Deps`; handlers are never called), connects an in-memory client, calls `tools/list`, and converts each tool to an OpenAI function: `name = prefix + name`, `parameters = inputSchema`. Descriptions are always the current code. Like `cmd/jev/main.go`, `main()` sets `JSONSCHEMAGODEBUG=typeschemasnull=1` before any schema inference, so slices are plain `"type":"array"` exactly as MCP clients of the real binary see them (a test guards this). Add a tool package and blank-import it in `tools.go` (same as `cmd/jev/main.go`); the unit test fails if a registered tool is missing from the list.
 
 ## Metrics
 
@@ -46,9 +46,10 @@ Per trial verdict, first match wins:
 | `acceptable` | chosen is in `acceptable` |
 | `escape` | chose `ask` although `ask` is not acceptable |
 | `wrong` | any other tool |
+| `truncated` | no tool call and `finish_reason == "length"` (max_tokens hit before the model acted); excluded from the ideal/accept/escape/none denominators |
 | `error` | request failed after retries; excluded from rates |
 
-Report columns: `ideal%`, `accept%` (ideal + acceptable), `escape%`, `none%` (all over scored trials), `schema%` (of trials with a tool call: required keys present and top-level types right, a deliberately simple check), mean latency, reported cost. Below the table: each non-acceptable pick as case, ideal, chosen, count. A control case with `ideal: "none"` expects no tool call.
+Report columns: `trials` (scored, errors excluded), `n_eff` (`n_effective`: trials minus truncated, the denominator of the rates below), `errors`, `trunc%` (truncated / trials), `ideal%`, `accept%` (ideal + acceptable), `escape%`, `none%` (all over `n_effective`), `schema%` (of trials with a tool call: required keys present and top-level types right, a deliberately simple check), mean latency, reported cost. Below the table: each non-acceptable pick as case, ideal, chosen, count. A control case with `ideal: "none"` expects no tool call.
 
 ## Cases
 

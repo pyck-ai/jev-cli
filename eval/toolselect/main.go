@@ -46,7 +46,18 @@ const (
 	openRouterBase = "https://openrouter.ai/api/v1"
 )
 
+// setSchemaCompat mirrors the first statement of cmd/jev/main.go: without it
+// google/jsonschema-go infers optional slices as "type":["null","array"],
+// which is not what MCP clients of the real binary see. Must run before any
+// schema inference.
+func setSchemaCompat() {
+	if err := os.Setenv("JSONSCHEMAGODEBUG", "typeschemasnull=1"); err != nil {
+		fmt.Fprintf(os.Stderr, "toolselect: warning: could not set JSONSCHEMAGODEBUG: %v\n", err)
+	}
+}
+
 func main() {
+	setSchemaCompat()
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "toolselect:", err)
 		os.Exit(1)
@@ -69,7 +80,7 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 	fs.IntVar(&c.reps, "reps", 1, "repetitions per case and model")
 	fs.IntVar(&c.concurrency, "concurrency", 4, "parallel requests")
 	fs.DurationVar(&c.timeout, "timeout", 90*time.Second, "per-request timeout")
-	fs.IntVar(&c.maxTokens, "max-tokens", 2048, "max_tokens per request (reasoning models need headroom)")
+	fs.IntVar(&c.maxTokens, "max-tokens", 4096, "max_tokens per request (reasoning models need headroom)")
 	fs.BoolVar(&c.jsonOut, "json", false, "print the report as JSON instead of tables")
 	fs.BoolVar(&c.yes, "yes", false, "run even when the cost estimate exceeds --max-usd")
 	fs.Float64Var(&c.maxUSD, "max-usd", 1.0, "cost estimate above which --yes is required")
@@ -250,6 +261,9 @@ func buildTrial(c Case, model string, rep int, obs Observation, err error, schem
 	t.TokensOut = obs.CompletionTokens
 	t.FinishReason = obs.FinishReason
 	t.Verdict = verdictFor(c, obs.Tool)
+	if obs.Tool == "none" && obs.FinishReason == "length" {
+		t.Verdict = VerdictTruncated
+	}
 	if obs.Tool == "none" {
 		t.Text = truncate(obs.Text, 400)
 	}
@@ -270,10 +284,10 @@ func buildTrial(c Case, model string, rep int, obs Observation, err error, schem
 }
 
 func printReport(w io.Writer, rep Report) {
-	fmt.Fprintf(w, "%-38s %6s %6s %7s %7s %6s %6s %8s %8s %8s\n", "model", "trials", "errors", "ideal%", "accept%", "escape%", "none%", "schema%", "lat(ms)", "cost$")
+	fmt.Fprintf(w, "%-38s %6s %6s %6s %6s %7s %7s %6s %6s %8s %8s %8s\n", "model", "trials", "n_eff", "errors", "trunc%", "ideal%", "accept%", "escape%", "none%", "schema%", "lat(ms)", "cost$")
 	for _, s := range rep.Models {
-		fmt.Fprintf(w, "%-38s %6d %6d %7.1f %7.1f %6.1f %6.1f %8.1f %8.0f %8.4f\n",
-			s.Model, s.Trials, s.Errors, s.IdealPct, s.AcceptPct, s.EscapePct, s.NonePct, s.SchemaPct, s.MeanLatency, s.CostUSD)
+		fmt.Fprintf(w, "%-38s %6d %6d %6d %6.1f %7.1f %7.1f %6.1f %6.1f %8.1f %8.0f %8.4f\n",
+			s.Model, s.Trials, s.NEffective, s.Errors, s.TruncPct, s.IdealPct, s.AcceptPct, s.EscapePct, s.NonePct, s.SchemaPct, s.MeanLatency, s.CostUSD)
 	}
 	if len(rep.Confusion) == 0 {
 		return
