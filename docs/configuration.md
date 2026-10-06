@@ -120,6 +120,7 @@ as-is. If present, any field you omit keeps its default value.
 |---|---|
 | `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool; the `--model` flag beats both. See [Models](#models). |
 | `JEV_CLI_CONFIG_PATH` | Overrides the config file path. |
+| `JEV_CLI_RECORD` | Directory for opt-in full request/response recording; `--record` wins. See [Recording](#recording-opt-in). |
 | `JEV_CLI_ROUTE`, `PYCKLLM_API_KEY`, `PYCKLLM_BASE_URL` | Route selection; see [Route](#route-litellm-proxy-or-direct-openrouter). |
 
 ## Models
@@ -186,6 +187,32 @@ question:
 Provider limits differ (for example `jaredpalmer/kev-4b` answers an
 oversized input with an opaque 400); the guard learns those on first
 failure.
+
+## Recording (opt-in)
+
+`jev --record <dir> ...` (any tool subcommand, and `jev mcp`) or `JEV_CLI_RECORD=<dir>` logs **full** tool calls and SystemOne wire exchanges for later analysis of model accuracy and of which tools agents pick. The flag wins over the env var; empty means off. Off by default, no overhead and no files when off; nothing is created until the first record is written (`--help` creates nothing). Unlike the audit log (SHA-256 of the input only), recordings contain the judged content: dir mode 0700, file mode 0600. API keys and Authorization headers are never recorded (they never reach the recorder).
+
+One append-only JSONL file per process: `<dir>/<UTC yyyymmdd-hhmmss>-<pid>.jsonl`. Write errors are never fatal: one stderr warning, then recording stops.
+
+| kind | when | key fields |
+|---|---|---|
+| `session` | once per process | `version`, `mode` (mcp\|cli), `model`, `model_source`, `tool_model_overrides`, `route`, `route_why`, `tools`, `argv` (cli) |
+| `client` | MCP, once, on the first request after initialize | `client.name`, `client.version` |
+| `tool_call` | one per tool invocation | `call_id`, `transport`, `tool`, `arguments`, `result.structured`, `result.text`, `is_error`, `error`, `latency_ms`, `client` (MCP) |
+| `systemone` | one per Ask that hit the network or was aborted by the preflight guard | `call_id`, `model`, `request` (questions + state), `http_status`, `response` (raw body), `response_model`, `provider`, `usage`, `error`, `preflight_error`, `latency_ms` |
+
+Every line has `ts`, `kind`, `session`. `call_id` ties a `tool_call` to its N `systemone` records.
+
+Limits: CLI `tool_call` records carry the subcommand and argv only (written before the tool runs, since tools `os.Exit` with the verdict code), no output or latency; the CLI's output is in the `systemone` `response`. The guard wrapper records vetoes but the guard's learned-limit behavior is unchanged.
+
+Analyze: `jev record summarize <file-or-dir>` prints calls, share, errors, error rate and average latency per tool and per model, plus MCP clients. Or with jq:
+
+```sh
+jq -r 'select(.kind=="tool_call") | .tool' <dir>/*.jsonl | sort | uniq -c | sort -rn
+jq -c 'select(.kind=="systemone") | {call_id, model, http_status, preflight_error}' <dir>/*.jsonl
+```
+
+Implementation: `internal/record` (a hook that wraps the guard so vetoes are recorded; MCP receiving middleware on `tools/call`).
 
 ## Audit log
 

@@ -22,10 +22,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -35,6 +37,7 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/config"
 	"github.com/pyck-ai/jev-cli/internal/models"
 	"github.com/pyck-ai/jev-cli/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/record"
 	"github.com/pyck-ai/jev-cli/internal/registry"
 	"github.com/pyck-ai/jev-cli/internal/route"
 
@@ -57,6 +60,13 @@ import (
 // serverVersion is this MCP server's own version, reported in its
 // Implementation metadata (unrelated to the OpenRouter/Jev model version).
 const serverVersion = "v0.1.0"
+
+// activeRecorder is the opt-in recorder (see internal/record), set by the
+// root command's PersistentPreRunE from --record / JEV_CLI_RECORD before any
+// tool runs. nil means recording is off (the default). It is a package
+// variable because buildDeps, which registers the wire hook, is reached
+// through callbacks whose signatures predate recording.
+var activeRecorder *record.Recorder
 
 func main() {
 	// google/jsonschema-go v0.3.0+ emits "type":["null","array"] for every
@@ -102,7 +112,8 @@ func main() {
 func runMCPServer(tools []registry.Tool, model string) {
 	deps := buildDeps(1, model)
 
-	server := newServer(deps, tools)
+	server := newRecordedServer(deps, tools, activeRecorder)
+	activeRecorder.Session(sessionRecord("mcp", deps, tools, nil, model))
 
 	// The log line reports the tool count and the effective default_model
 	// (without --model, each tool may resolve a different model via
@@ -195,8 +206,12 @@ func toolCLINames(tools []registry.Tool) []string {
 func newRootCmd(newDeps func(model string) *registry.Deps, serveMCP func(tools []registry.Tool, model string)) *cobra.Command {
 	var modelFlag string
 	provider := registry.DepsProvider(func() *registry.Deps {
-		return newDeps(modelFlag)
+		deps := newDeps(modelFlag)
+		activeRecorder.Session(sessionRecord("cli", deps, nil, os.Args, modelFlag))
+		return deps
 	})
+
+	var recordFlag string
 	root := &cobra.Command{
 		Use:   "jev",
 		Short: "OpenRouter SystemOne decision models (default: TypeSafe's Jev), as a CLI and an MCP server",
@@ -211,6 +226,13 @@ as a set of judgment tools, in three modes:
   jev mcp          Serve every tool over MCP on stdio, for MCP clients such
                    as opencode or Claude Code.`,
 		Args: cobra.NoArgs,
+		// Resolve --record / JEV_CLI_RECORD once flags are parsed. Not run
+		// for --help, and New touches no disk, so a disabled or idle run
+		// creates nothing.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			activeRecorder = record.New(record.Dir(recordFlag), time.Now(), os.Getpid())
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// A missing feature, not a usage mistake: skip the usage dump.
 			cmd.SilenceUsage = true
@@ -219,6 +241,8 @@ as a set of judgment tools, in three modes:
 	}
 	root.PersistentFlags().StringVar(&modelFlag, "model", "",
 		"SystemOne decision model slug for every tool (e.g. liquid/d1, cloudflare/clef); overrides JEV_CLI_MODEL and the config file. List models with `jev models`.")
+	root.PersistentFlags().StringVar(&recordFlag, "record", "",
+		"Record full tool calls and SystemOne requests/responses as JSONL into this directory (0700; files 0600). Contains judged content; off by default. Also JEV_CLI_RECORD; the flag wins.")
 	root.AddGroup(
 		&cobra.Group{ID: groupTools, Title: "Tool commands:"},
 		&cobra.Group{ID: groupServer, Title: "Server:"},
@@ -258,6 +282,9 @@ list (and its token cost) small:
 	modelsCmd := models.NewCommand(func() (models.Getter, error) { return newDeps(modelFlag).Client, nil })
 	modelsCmd.GroupID = groupInfo
 	root.AddCommand(modelsCmd)
+	recordCmd := record.NewCommand()
+	recordCmd.GroupID = groupInfo
+	root.AddCommand(recordCmd)
 
 	toolNames := make(map[string]bool)
 	for _, t := range registry.All() {
@@ -269,6 +296,7 @@ list (and its token cost) small:
 	for _, c := range root.Commands() {
 		if toolNames[c.Name()] {
 			c.GroupID = groupTools
+			recordCLICall(c)
 		}
 	}
 	return root
@@ -329,7 +357,7 @@ func buildDeps(exitCode int, model string) *registry.Deps {
 
 	// Pre-send guard: refuses requests the catalog's context length or a
 	// previously learned provider 400 says will fail (see internal/models).
-	client.AddHook(models.NewGuard(client, models.Options{}))
+	installHooks(client, activeRecorder, models.NewGuard(client, models.Options{}))
 
 	spend := budget.NewTracker(cfg.Budget.MaxUSDPerSession)
 
@@ -348,16 +376,89 @@ func buildDeps(exitCode int, model string) *registry.Deps {
 // client/server session (see main_test.go), without going through
 // os.Exit-prone startup code or touching the real network.
 func newServer(deps *registry.Deps, tools []registry.Tool) *mcp.Server {
+	return newRecordedServer(deps, tools, nil)
+}
+
+// newRecordedServer is newServer plus recording: with a non-nil rec, a
+// receiving middleware records every tools/call and the connecting client.
+func newRecordedServer(deps *registry.Deps, tools []registry.Tool, rec *record.Recorder) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "jev-cli",
 		Version: serverVersion,
 	}, nil)
+
+	if rec != nil {
+		server.AddReceivingMiddleware(rec.MCPMiddleware())
+	}
 
 	for _, t := range tools {
 		t.RegisterMCP(server, deps)
 	}
 
 	return server
+}
+
+// installHooks registers the pre-send guard on client. With a non-nil rec
+// the guard is wrapped by the recorder's hook instead (a single hook), so a
+// guard veto is recorded as well: a hook registered next to the guard would
+// never run once the guard's BeforeAsk fails. guard may be nil.
+func installHooks(client *openrouter.Client, rec *record.Recorder, guard openrouter.Hook) {
+	if rec != nil {
+		client.AddHook(rec.WrapHook(guard))
+		return
+	}
+	client.AddHook(guard)
+}
+
+// recordCLICall wraps a tool subcommand's RunE so that, when recording is
+// on, it writes one tool_call record (subcommand and the flags the user
+// set) and puts its call_id into the command context for the systemone
+// records. The record is written BEFORE the tool runs because tools call
+// os.Exit(<verdict code>) inside RunE; CLI tool_call records therefore
+// carry no output or latency (the wire-level systemone records have the
+// full request and response).
+func recordCLICall(c *cobra.Command) {
+	run := c.RunE
+	if run == nil {
+		return
+	}
+	c.RunE = func(cmd *cobra.Command, args []string) error {
+		if activeRecorder == nil {
+			return run(cmd, args)
+		}
+		// The parsed flags live inside each tool's own binder; argv is the
+		// user's input as typed (state fed via stdin/@file is in the
+		// systemone request instead).
+		input, _ := json.Marshal(map[string]any{"command": cmd.Name(), "argv": os.Args[1:], "args": args})
+		id := record.NewCallID()
+		activeRecorder.Write(record.Record{Kind: record.KindToolCall, CallID: id, Transport: "cli", Tool: cmd.Name(), Arguments: input})
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		cmd.SetContext(record.WithCallID(ctx, id))
+		return run(cmd, args)
+	}
+}
+
+// sessionRecord describes this process for the recording's session record.
+func sessionRecord(mode string, deps *registry.Deps, tools []registry.Tool, argv []string, modelFlag string) record.Record {
+	if tools == nil {
+		tools = registry.All()
+	}
+	src := "default_model/built-in default"
+	switch {
+	case modelFlag != "":
+		src = "--model"
+	case os.Getenv(config.EnvModel) != "":
+		src = config.EnvModel
+	}
+	ri := deps.Client.RouteInfo()
+	return record.Record{
+		Version: serverVersion, Mode: mode, Model: deps.Config.DefaultModel, ModelSource: src,
+		ToolModels: deps.Config.ToolModelOverrides, Route: ri.Route, RouteWhy: ri.Why,
+		Tools: toolCLINames(tools), Argv: argv,
+	}
 }
 
 // mustConfigPath is used only for the startup log line; config.Load()

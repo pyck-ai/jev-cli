@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/budget"
 	"github.com/pyck-ai/jev-cli/internal/config"
 	"github.com/pyck-ai/jev-cli/internal/openrouter"
+	"github.com/pyck-ai/jev-cli/internal/record"
 	"github.com/pyck-ai/jev-cli/internal/registry"
 	"github.com/pyck-ai/jev-cli/internal/tools/score"
 )
@@ -250,7 +253,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 
 	want := []string{
 		"ask", "check", "classify", "compare", "decide",
-		"doctor", "extract", "gate", "match", "mcp", "models", "rerank",
+		"doctor", "extract", "gate", "match", "mcp", "models", "record", "rerank",
 		"review", "score", "screen", "verify",
 	}
 	var got []string
@@ -537,5 +540,190 @@ func TestRootCmd_ModelsCommand(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "liquid/d1") || !strings.Contains(out.String(), "65536") {
 		t.Errorf("output = %q", out.String())
+	}
+}
+
+// abortHook is a stand-in for the preflight guard that always vetoes.
+type abortHook struct{}
+
+func (abortHook) BeforeAsk(context.Context, *openrouter.Request) error {
+	return errors.New("preflight: too big")
+}
+func (abortHook) AfterAsk(context.Context, *openrouter.Request, int, []byte, *openrouter.Response, error, time.Duration) {
+}
+
+func readRecords(t *testing.T, dir string) []map[string]any {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("want exactly 1 recording file in %s, got %v", dir, files)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("bad line %q: %v", line, err)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// TestEndToEnd_Recording drives jev_score over MCP with recording on and
+// checks the session, client, tool_call and systemone records, their
+// call_id correlation, that a guard veto is recorded, that no key leaks,
+// and file permissions.
+func TestEndToEnd_Recording(t *testing.T) {
+	const secret = "sk-or-FAKE-SECRET-KEY"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(openrouter.Response{
+			Answers:  map[string]json.RawMessage{"score": json.RawMessage(`{"type":"score","score":1.5,"confidence":0.9,"probabilities":{"0":0,"1":0.5,"2":0.5}}`)},
+			Model:    "typesafe/jev-1.13-20260917",
+			Provider: "TypeSafe",
+			Usage:    &openrouter.Usage{Cost: 0.00002, InputTokens: 10, OutputTokens: 5},
+		})
+	}))
+	defer srv.Close()
+
+	run := func(t *testing.T, dir string, guard openrouter.Hook) {
+		cfg := config.Default()
+		client := openrouter.NewClientWithEndpoint(secret, srv.URL, openrouter.RetryPolicy{MaxAttempts: 1, BaseBackoffMs: 1, MaxBackoffMs: 5})
+		rec := record.New(dir, time.Now(), 4242)
+		installHooks(client, rec, guard)
+		deps := &registry.Deps{Client: client, Config: cfg, Budget: budget.NewTracker(cfg.Budget.MaxUSDPerSession), Audit: audit.NewLogger(t.TempDir() + "/audit.jsonl")}
+		server := newRecordedServer(deps, registry.All(), rec)
+		rec.Session(sessionRecord("mcp", deps, registry.All(), nil, ""))
+		defer rec.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		t1, t2 := mcp.NewInMemoryTransports()
+		ss, err := server.Connect(ctx, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ss.Close()
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v9"}, nil).Connect(ctx, t2, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cs.Close()
+		if _, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: score.ToolNameScore, Arguments: map[string]any{
+			"state": "secret judged content", "scale_min": 0, "scale_max": 2, "instructions": "rate",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	check := func(t *testing.T, dir string, wantPreflight bool) {
+		recs := readRecords(t, dir)
+		by := map[string][]map[string]any{}
+		for _, r := range recs {
+			by[r["kind"].(string)] = append(by[r["kind"].(string)], r)
+			if r["session"] != "" && r["session"] == nil {
+				t.Errorf("missing session: %v", r)
+			}
+		}
+		if len(by["session"]) != 1 || len(by["tool_call"]) != 1 || len(by["systemone"]) != 1 || len(by["client"]) != 1 {
+			t.Fatalf("record kinds = %v", by)
+		}
+		tc, so := by["tool_call"][0], by["systemone"][0]
+		if tc["tool"] != score.ToolNameScore || tc["call_id"] == "" || tc["call_id"] != so["call_id"] {
+			t.Errorf("tool_call/systemone call_id mismatch: %v vs %v", tc, so)
+		}
+		if !strings.Contains(string(mustJSON(tc["arguments"])), "secret judged content") {
+			t.Errorf("tool_call lacks full arguments: %v", tc)
+		}
+		if tc["client"].(map[string]any)["name"] != "test-client" {
+			t.Errorf("client not recorded: %v", tc)
+		}
+		if !strings.Contains(string(mustJSON(so["request"])), "secret judged content") {
+			t.Errorf("systemone lacks full request: %v", so)
+		}
+		if wantPreflight {
+			if so["preflight_error"] != "preflight: too big" || so["http_status"] != nil {
+				t.Errorf("preflight abort not recorded: %v", so)
+			}
+		} else if so["http_status"] != float64(200) || so["provider"] != "TypeSafe" || so["response"] == nil || so["usage"] == nil {
+			t.Errorf("systemone wire fields missing: %v", so)
+		}
+
+		files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+		raw, _ := os.ReadFile(files[0])
+		if strings.Contains(string(raw), secret) || strings.Contains(strings.ToLower(string(raw)), "authorization") {
+			t.Error("recording leaked the API key or an Authorization header")
+		}
+		if fi, _ := os.Stat(files[0]); fi.Mode().Perm() != 0o600 {
+			t.Errorf("file mode = %v, want 0600", fi.Mode().Perm())
+		}
+		if di, _ := os.Stat(dir); di.Mode().Perm() != 0o700 {
+			t.Errorf("dir mode = %v, want 0700", di.Mode().Perm())
+		}
+	}
+
+	t.Run("wire call", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "rec")
+		run(t, dir, nil)
+		check(t, dir, false)
+	})
+	t.Run("preflight abort is recorded", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "rec")
+		run(t, dir, abortHook{})
+		check(t, dir, true)
+	})
+	t.Run("off creates nothing", func(t *testing.T) {
+		parent := t.TempDir()
+		run(t, "", nil)
+		if entries, _ := os.ReadDir(parent); len(entries) != 0 {
+			t.Errorf("files created: %v", entries)
+		}
+	})
+}
+
+func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+
+// TestRootCmd_RecordFlagAndEnv checks flag-over-env precedence, that help
+// creates nothing, and that the flag is persistent.
+func TestRootCmd_RecordFlagAndEnv(t *testing.T) {
+	t.Cleanup(func() { activeRecorder = nil })
+	envDir, flagDir := t.TempDir(), t.TempDir()
+	t.Setenv(record.EnvDir, envDir)
+
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
+	root.SetArgs([]string{"mcp"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if activeRecorder == nil || filepath.Dir(activeRecorder.Path()) != envDir {
+		t.Errorf("env not honored: %v", activeRecorder.Path())
+	}
+
+	root = newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
+	root.SetArgs([]string{"--record", flagDir, "mcp"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(activeRecorder.Path()) != flagDir {
+		t.Errorf("flag should win: %v", activeRecorder.Path())
+	}
+
+	t.Setenv(record.EnvDir, "")
+	root = newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
+	root.SetArgs([]string{"mcp"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if activeRecorder != nil {
+		t.Error("recording should be off with no flag and no env")
+	}
+	for _, d := range []string{envDir, flagDir} {
+		if e, _ := os.ReadDir(d); len(e) != 0 {
+			t.Errorf("files created in %s: %v", d, e)
+		}
 	}
 }

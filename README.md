@@ -102,10 +102,13 @@ jev score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1
 jev --help
 jev models                         # list the SystemOne decision models OpenRouter offers
 jev --model liquid/d1 score ...    # force one model for every tool
+jev mcp --record ~/jev-rec         # opt-in: log full requests/responses as JSONL
+jev record summarize ~/jev-rec     # calls, errors, latency per tool and model
 ```
 
 Model selection, the `jev models` cache and the pre-send guard:
-[Configuration](docs/configuration.md#models).
+[Configuration](docs/configuration.md#models). Recording:
+[Configuration](docs/configuration.md#recording-opt-in).
 
 Or as an MCP server: `jev mcp` speaks MCP over stdio, so an MCP client's
 server command is `jev mcp` (add `--tools verify,check,...` to serve only

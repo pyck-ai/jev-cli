@@ -359,6 +359,8 @@ recommendation.
 |---|---|
 | `--model <slug>` | Persistent root flag: forces this SystemOne decision model for every tool, over `tool_model_overrides`, `JEV_CLI_MODEL` and `default_model` (see [Models](configuration.md#models)). |
 | `jev models [--refresh] [-o json]` | Lists the decision models OpenRouter offers (cached 24h; `--refresh` refetches and clears learned limits). Not a tool: no MCP counterpart. |
+| `--record <dir>` / `JEV_CLI_RECORD` | Persistent root flag: opt-in JSONL recording of full tool calls and SystemOne exchanges (see [Recording](configuration.md#recording-opt-in)). |
+| `jev record summarize <file-or-dir>` | Calls, share, errors, latency per tool and per model from recordings. No credentials needed. |
 
 ### Worked examples
 
