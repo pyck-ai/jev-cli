@@ -1,6 +1,6 @@
 # eval/toolselect
 
-Offline eval: which jev MCP tool does an LLM agent pick for a task? Use it to measure the effect of edits to tool descriptions. It sends one single-turn chat completion per trial, scores the first tool call, and never invokes a jev handler. Not shipped in the image (`.dockerignore` whitelists only `go.mod`, `go.sum`, `cmd/`, `internal/`).
+Offline eval: which jev MCP tool does an LLM agent pick for a task? Use it to measure the effect of edits to tool descriptions. It sends one single-turn chat completion per trial, scores the tool calls of the response (the first call decides the verdict, a `parallel` set can upgrade it), and never invokes a jev handler. Not shipped in the image (`.dockerignore` whitelists only `go.mod`, `go.sum`, `cmd/`, `internal/`).
 
 ## Run
 
@@ -37,23 +37,23 @@ Routing on the proxy: ids starting `anthropic/` or `~anthropic/` go to `<base>/v
 
 ## Metrics
 
-Per trial verdict, first match wins:
+Per trial verdict, first match wins (computed on the first tool call; a response with 2+ calls is upgraded to `acceptable` only by a `parallel` match, never otherwise, so e.g. 4x `rerank` stays wrong):
 
 | Verdict | Meaning |
 |---|---|
 | `ideal` | chosen == `ideal` |
 | `none` | no tool call (the agent answered in text; the text is kept in the JSONL) |
-| `acceptable` | chosen is in `acceptable` |
+| `acceptable` | chosen is in `acceptable`, or the response has 2+ tool calls whose distinct tool set equals a case `parallel` entry |
 | `escape` | chose `ask` although `ask` is not acceptable |
 | `wrong` | any other tool |
 | `truncated` | no tool call and `finish_reason == "length"` (max_tokens hit before the model acted); excluded from the ideal/accept/escape/none denominators |
 | `error` | request failed after retries; excluded from rates |
 
-Report columns: `trials` (scored, errors excluded), `n_eff` (`n_effective`: trials minus truncated, the denominator of the rates below), `errors`, `trunc%` (truncated / trials), `ideal%`, `accept%` (ideal + acceptable), `escape%`, `none%` (all over `n_effective`), `schema%` (of trials with a tool call: required keys present and top-level types right, a deliberately simple check), mean latency, reported cost. Below the table: each non-acceptable pick as case, ideal, chosen, count. A control case with `ideal: "none"` expects no tool call.
+Report columns: `trials` (scored, errors excluded), `n_eff` (`n_effective`: trials minus truncated, the denominator of the rates below), `errors`, `trunc%` (truncated / trials), `ideal%`, `accept%` (ideal + acceptable), `escape%`, `none%`, `multi%` (trials with 2+ tool calls; all over `n_effective`), `schema%` (of trials with a tool call: required keys present and top-level types right, checked on every call, problems prefixed `<tool>: ` when there are 2+, a deliberately simple check), mean latency, reported cost. Below the table: each non-acceptable pick as case, ideal, chosen (a multi-call trial shows its call names `+`-joined in order, e.g. `rerank+rerank`), count. The JSONL `chosen` is the first call; `calls` lists all bare names, only when there are 2+. A control case with `ideal: "none"` expects no tool call.
 
 ## Cases
 
-`cases.json` holds `system_prompt` (versioned with the cases) and `cases[]` with `id`, `category`, `prompt`, `ideal` (bare tool name, e.g. `decide`, or `none`), `acceptable` (list), `notes` (why this label). To add one: append an object, keep the id unique, run `go test ./eval/...` (checks tool names, duplicates, prompts naming a tool, and that every tool is the ideal pick of at least two cases). Prompts must not name a tool. Set `acceptable` where a second tool is genuinely defensible (batched independent decisions, mixed rubrics), not to forgive misroutes.
+`cases.json` holds `system_prompt` (versioned with the cases) and `cases[]` with `id`, `category`, `prompt`, `ideal` (bare tool name, e.g. `decide`, or `none`), `acceptable` (list), optional `parallel` (list of `+`-joined bare tool sets such as `decide+check`: 2+ distinct known tools, order and duplicates ignored; a response with several calls matching one is acceptable), `notes` (why this label). To add one: append an object, keep the id unique, run `go test ./eval/...` (checks tool names, duplicates, prompts naming a tool, and that every tool is the ideal pick of at least two cases). Prompts must not name a tool. Set `acceptable` where a second tool is genuinely defensible (batched independent decisions, mixed rubrics), not to forgive misroutes.
 
 **Privacy: cases are synthetic only.** The repo is public. Never copy text, names or domain details from real sessions, traces or tickets.
 

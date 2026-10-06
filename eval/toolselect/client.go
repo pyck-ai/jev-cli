@@ -34,12 +34,22 @@ func (e Endpoint) URL(model string) string {
 	return base + "/openrouter/api/v1/chat/completions"
 }
 
-// Observation is what one request produced.
+// Call is one tool call of a response.
+type Call struct {
+	Tool    string // bare tool name
+	RawTool string // name exactly as the model returned it
+	Args    map[string]any
+	ArgsRaw string
+}
+
+// Observation is what one request produced. Tool, RawTool, Args and ArgsRaw
+// describe the first tool call; Calls holds every tool call in order.
 type Observation struct {
-	Tool             string // bare tool name, or "none"
+	Tool             string // bare tool name of the first call, or "none"
 	RawTool          string // name exactly as the model returned it
 	Args             map[string]any
 	ArgsRaw          string
+	Calls            []Call
 	FinishReason     string
 	Cost             float64
 	PromptTokens     int
@@ -70,9 +80,10 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// parseResponse extracts the first tool call of the first choice. A response
-// with no tool call is not an error: Tool is "none". An API-level error body
-// is returned as an error.
+// parseResponse extracts the tool calls of the first choice: the first call
+// fills Tool/RawTool/Args/ArgsRaw, all calls fill Calls. A response with no
+// tool call is not an error: Tool is "none". An API-level error body is
+// returned as an error.
 func parseResponse(body []byte, prefix string) (Observation, error) {
 	var r chatResponse
 	if err := json.Unmarshal(body, &r); err != nil {
@@ -100,22 +111,31 @@ func parseResponse(body []byte, prefix string) (Observation, error) {
 	if len(ch.Message.ToolCalls) == 0 {
 		return obs, nil
 	}
-	fn := ch.Message.ToolCalls[0].Function
-	obs.RawTool = fn.Name
-	obs.Tool = bareName(fn.Name, prefix)
-	switch a := fn.Arguments.(type) {
+	for _, tc := range ch.Message.ToolCalls {
+		obs.Calls = append(obs.Calls, parseCall(tc.Function.Name, tc.Function.Arguments, prefix))
+	}
+	first := obs.Calls[0]
+	obs.Tool, obs.RawTool, obs.Args, obs.ArgsRaw = first.Tool, first.RawTool, first.Args, first.ArgsRaw
+	return obs, nil
+}
+
+// parseCall converts one function call; arguments arrive as a JSON string or
+// an object.
+func parseCall(name string, arguments any, prefix string) Call {
+	c := Call{RawTool: name, Tool: bareName(name, prefix)}
+	switch a := arguments.(type) {
 	case string:
-		obs.ArgsRaw = a
+		c.ArgsRaw = a
 		if strings.TrimSpace(a) != "" {
 			// Malformed JSON leaves Args nil; schema validation reports it.
-			_ = json.Unmarshal([]byte(a), &obs.Args)
+			_ = json.Unmarshal([]byte(a), &c.Args)
 		}
 	case map[string]any:
-		obs.Args = a
+		c.Args = a
 		b, _ := json.Marshal(a)
-		obs.ArgsRaw = string(b)
+		c.ArgsRaw = string(b)
 	}
-	return obs, nil
+	return c
 }
 
 // Caller sends requests to the endpoint.

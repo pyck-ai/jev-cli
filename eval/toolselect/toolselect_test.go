@@ -71,6 +71,115 @@ func TestVerdictFor(t *testing.T) {
 	}
 }
 
+func TestParseResponseMultipleCalls(t *testing.T) {
+	body := `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_jev_decide","arguments":"{\"decision\":\"x\"}"}},{"function":{"name":"jev_jev_check","arguments":{"claim":"c"}}}]}}]}`
+	obs, err := parseResponse([]byte(body), "jev_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Tool != "decide" || obs.RawTool != "jev_jev_decide" || obs.Args["decision"] != "x" {
+		t.Errorf("first-call fields changed: %+v", obs)
+	}
+	if len(obs.Calls) != 2 || obs.Calls[0].Tool != "decide" || obs.Calls[1].Tool != "check" || obs.Calls[1].Args["claim"] != "c" || obs.Calls[1].ArgsRaw == "" {
+		t.Errorf("Calls = %+v", obs.Calls)
+	}
+}
+
+func TestParallelVerdict(t *testing.T) {
+	c := Case{ID: "p", Ideal: "batch", Acceptable: []string{"ask"}, Parallel: []string{"decide+check", "decide+check+verify"}}
+	plain := Case{ID: "q", Ideal: "batch"}
+	call := func(names ...string) []Call {
+		var cs []Call
+		for _, n := range names {
+			cs = append(cs, Call{Tool: n, RawTool: "jev_jev_" + n, Args: map[string]any{}})
+		}
+		return cs
+	}
+	tests := []struct {
+		name  string
+		c     Case
+		calls []string
+		want  string
+	}{
+		{"match", c, []string{"decide", "check"}, VerdictAcceptable},
+		{"order and duplicates ignored", c, []string{"check", "decide", "check"}, VerdictAcceptable},
+		{"three-way match", c, []string{"decide", "verify", "check"}, VerdictAcceptable},
+		{"partial: decide alone", c, []string{"decide"}, VerdictWrong},
+		{"partial: decide twice", c, []string{"decide", "decide"}, VerdictWrong},
+		{"partial: decide+score", c, []string{"decide", "score"}, VerdictWrong},
+		{"superset not accepted", c, []string{"decide", "check", "score"}, VerdictWrong},
+		{"rerank x4 without entry", plain, []string{"rerank", "rerank", "rerank", "rerank"}, VerdictWrong},
+		{"rerank x4 on case with other entries", c, []string{"rerank", "rerank", "rerank", "rerank"}, VerdictWrong},
+		{"ideal first stays ideal", c, []string{"batch", "decide"}, VerdictIdeal},
+	}
+	for _, tt := range tests {
+		calls := call(tt.calls...)
+		if got := verdictForCalls(tt.c, calls[0].Tool, calls); got != tt.want {
+			t.Errorf("%s: verdict = %s, want %s", tt.name, got, tt.want)
+		}
+	}
+	// End to end through buildTrial, with the second call's schema checked.
+	schemas := map[string]map[string]any{
+		"decide": {},
+		"check":  {"required": []any{"claim"}},
+	}
+	obs := Observation{Tool: "decide", RawTool: "jev_jev_decide", Args: map[string]any{}, Calls: call("decide", "check")}
+	tr := buildTrial(c, "m", 1, obs, nil, schemas)
+	if tr.Verdict != VerdictAcceptable || !tr.Acceptable || len(tr.Calls) != 2 || tr.Chosen != "decide" {
+		t.Errorf("trial = %+v", tr)
+	}
+	if tr.SchemaValid == nil || *tr.SchemaValid || len(tr.SchemaProblem) != 1 || tr.SchemaProblem[0] != "check: missing required claim" {
+		t.Errorf("schema = %v %v", tr.SchemaValid, tr.SchemaProblem)
+	}
+	// A single call stays unprefixed and carries no calls field.
+	one := buildTrial(c, "m", 1, Observation{Tool: "check", RawTool: "jev_jev_check", Args: map[string]any{}}, nil, schemas)
+	if one.Calls != nil || len(one.SchemaProblem) != 1 || one.SchemaProblem[0] != "missing required claim" {
+		t.Errorf("single call trial = %+v", one)
+	}
+	// Unknown tool in a later call is a problem.
+	obs = Observation{Tool: "decide", RawTool: "jev_jev_decide", Args: map[string]any{}, Calls: call("decide", "frob")}
+	tr = buildTrial(c, "m", 1, obs, nil, schemas)
+	if tr.SchemaValid == nil || *tr.SchemaValid || tr.SchemaProblem[0] != "frob: unknown tool jev_jev_frob" {
+		t.Errorf("unknown second call: %v %v", tr.SchemaValid, tr.SchemaProblem)
+	}
+}
+
+func TestSummarizeMultiCall(t *testing.T) {
+	ok := true
+	trials := []Trial{
+		{CaseID: "a", Model: "m", Ideal: "batch", Chosen: "rerank", Calls: []string{"rerank", "rerank"}, Verdict: VerdictWrong, SchemaValid: &ok},
+		{CaseID: "a", Model: "m", Ideal: "batch", Chosen: "batch", Verdict: VerdictIdeal, SchemaValid: &ok},
+	}
+	rep := summarize(trials)
+	if rep.Models[0].MultiPct != 50 {
+		t.Errorf("multi%% = %v", rep.Models[0].MultiPct)
+	}
+	if len(rep.Confusion) != 1 || rep.Confusion[0].Chosen != "rerank+rerank" {
+		t.Errorf("confusion = %+v", rep.Confusion)
+	}
+}
+
+func TestValidateParallel(t *testing.T) {
+	known := []string{"decide", "check", "verify", "batch"}
+	mk := func(p ...string) *CaseFile {
+		return &CaseFile{SystemPrompt: "s", Cases: []Case{{ID: "x", Category: "c", Prompt: "p", Ideal: "batch", Notes: "n", Parallel: p}}}
+	}
+	if err := validateCases(mk("decide+check", "decide+check+verify"), known); err != nil {
+		t.Errorf("valid entries rejected: %v", err)
+	}
+	for name, p := range map[string]string{
+		"single name":      "decide",
+		"duplicate single": "decide+decide",
+		"unknown tool":     "decide+frobnicate",
+		"none":             "decide+none",
+		"empty":            "",
+	} {
+		if err := validateCases(mk(p), known); err == nil {
+			t.Errorf("%s: %q accepted", name, p)
+		}
+	}
+}
+
 func TestValidateArgs(t *testing.T) {
 	schema := map[string]any{
 		"type":     "object",

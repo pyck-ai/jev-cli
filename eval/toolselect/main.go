@@ -260,7 +260,14 @@ func buildTrial(c Case, model string, rep int, obs Observation, err error, schem
 	t.TokensIn = obs.PromptTokens
 	t.TokensOut = obs.CompletionTokens
 	t.FinishReason = obs.FinishReason
-	t.Verdict = verdictFor(c, obs.Tool)
+	calls := obs.Calls
+	if len(calls) == 0 && obs.Tool != "none" {
+		calls = []Call{{Tool: obs.Tool, RawTool: obs.RawTool, Args: obs.Args, ArgsRaw: obs.ArgsRaw}}
+	}
+	if len(calls) >= 2 {
+		t.Calls = callNames(calls)
+	}
+	t.Verdict = verdictForCalls(c, obs.Tool, calls)
 	if obs.Tool == "none" && obs.FinishReason == "length" {
 		t.Verdict = VerdictTruncated
 	}
@@ -268,13 +275,21 @@ func buildTrial(c Case, model string, rep int, obs Observation, err error, schem
 		t.Text = truncate(obs.Text, 400)
 	}
 	t.Acceptable = t.Verdict == VerdictIdeal || t.Verdict == VerdictAcceptable
-	if obs.Tool != "none" {
-		schema, known := schemas[obs.Tool]
+	if len(calls) > 0 {
 		var problems []string
-		if !known {
-			problems = []string{"unknown tool " + obs.RawTool}
-		} else {
-			problems = validateArgs(schema, obs.Args)
+		for _, call := range calls {
+			var ps []string
+			if schema, known := schemas[call.Tool]; !known {
+				ps = []string{"unknown tool " + call.RawTool}
+			} else {
+				ps = validateArgs(schema, call.Args)
+			}
+			for _, p := range ps {
+				if len(calls) >= 2 {
+					p = call.Tool + ": " + p
+				}
+				problems = append(problems, p)
+			}
 		}
 		ok := len(problems) == 0
 		t.SchemaValid = &ok
@@ -284,10 +299,10 @@ func buildTrial(c Case, model string, rep int, obs Observation, err error, schem
 }
 
 func printReport(w io.Writer, rep Report) {
-	fmt.Fprintf(w, "%-38s %6s %6s %6s %6s %7s %7s %6s %6s %8s %8s %8s\n", "model", "trials", "n_eff", "errors", "trunc%", "ideal%", "accept%", "escape%", "none%", "schema%", "lat(ms)", "cost$")
+	fmt.Fprintf(w, "%-38s %6s %6s %6s %6s %7s %7s %6s %6s %6s %8s %8s %8s\n", "model", "trials", "n_eff", "errors", "trunc%", "ideal%", "accept%", "escape%", "none%", "multi%", "schema%", "lat(ms)", "cost$")
 	for _, s := range rep.Models {
-		fmt.Fprintf(w, "%-38s %6d %6d %6d %6.1f %7.1f %7.1f %6.1f %6.1f %8.1f %8.0f %8.4f\n",
-			s.Model, s.Trials, s.NEffective, s.Errors, s.TruncPct, s.IdealPct, s.AcceptPct, s.EscapePct, s.NonePct, s.SchemaPct, s.MeanLatency, s.CostUSD)
+		fmt.Fprintf(w, "%-38s %6d %6d %6d %6.1f %7.1f %7.1f %6.1f %6.1f %6.1f %8.1f %8.0f %8.4f\n",
+			s.Model, s.Trials, s.NEffective, s.Errors, s.TruncPct, s.IdealPct, s.AcceptPct, s.EscapePct, s.NonePct, s.MultiPct, s.SchemaPct, s.MeanLatency, s.CostUSD)
 	}
 	if len(rep.Confusion) == 0 {
 		return

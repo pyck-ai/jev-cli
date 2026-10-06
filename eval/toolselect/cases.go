@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -14,7 +15,11 @@ type Case struct {
 	Prompt     string   `json:"prompt"`
 	Ideal      string   `json:"ideal"`
 	Acceptable []string `json:"acceptable"`
-	Notes      string   `json:"notes"`
+	// Parallel lists '+'-joined sets of bare tool names, e.g. "decide+check".
+	// A response with 2+ tool calls whose set of distinct tool names equals an
+	// entry is acceptable (order and duplicates ignored).
+	Parallel []string `json:"parallel,omitempty"`
+	Notes    string   `json:"notes"`
 }
 
 // CaseFile is the on-disk shape of cases.json. The system prompt lives next to
@@ -32,6 +37,39 @@ func (c Case) accepts(tool string) bool {
 	}
 	for _, a := range c.Acceptable {
 		if a == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// parallelSet splits a Parallel entry into its sorted, de-duplicated names.
+func parallelSet(entry string) []string {
+	return distinctSorted(strings.Split(entry, "+"))
+}
+
+func distinctSorted(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// acceptsParallel reports whether the distinct set of tools (bare names, from
+// 2+ calls) equals one of the case's Parallel entries.
+func (c Case) acceptsParallel(tools []string) bool {
+	if len(tools) < 2 {
+		return false
+	}
+	got := strings.Join(distinctSorted(tools), "+")
+	for _, p := range c.Parallel {
+		if strings.Join(parallelSet(p), "+") == got {
 			return true
 		}
 	}
@@ -77,6 +115,17 @@ func validateCases(cf *CaseFile, known []string) error {
 		for _, a := range c.Acceptable {
 			if !set[a] {
 				return fmt.Errorf("case %s: acceptable %q is not a known tool", c.ID, a)
+			}
+		}
+		for _, p := range c.Parallel {
+			names := parallelSet(p)
+			if len(names) < 2 {
+				return fmt.Errorf("case %s: parallel %q needs at least two distinct tools", c.ID, p)
+			}
+			for _, n := range names {
+				if n == "none" || !set[n] {
+					return fmt.Errorf("case %s: parallel %q names %q, which is not a known tool", c.ID, p, n)
+				}
 			}
 		}
 		if strings.Contains(strings.ToLower(c.Prompt), "jev") {

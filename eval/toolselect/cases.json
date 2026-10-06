@@ -556,7 +556,12 @@
       "acceptable": [
         "ask"
       ],
-      "notes": "A decision plus two yes/no sanity checks on separate claims: batch (one decide + two check items) is ideal; ask with mixed question types is defensible. A lone decide or check would drop part of the request."
+      "parallel": [
+        "decide+check",
+        "decide+verify",
+        "decide+check+verify"
+      ],
+      "notes": "A decision plus two yes/no sanity checks on separate claims: batch (one decide + two check items) is ideal; ask with mixed question types is defensible. A lone decide or check would drop part of the request. Parallel decide plus check/verify calls also cover the request."
     },
     {
       "id": "batch-score-three-docs",

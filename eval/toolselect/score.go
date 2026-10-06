@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Verdicts, in decreasing order of goodness.
@@ -36,6 +37,29 @@ func verdictFor(c Case, chosen string) string {
 	default:
 		return VerdictWrong
 	}
+}
+
+// verdictForCalls scores a response: the first call as verdictFor does, then,
+// if that is not ideal/acceptable and the response has 2+ calls whose distinct
+// tool set matches a Parallel entry, acceptable. Truncation is the caller's.
+func verdictForCalls(c Case, first string, calls []Call) string {
+	v := verdictFor(c, first)
+	if v == VerdictIdeal || v == VerdictAcceptable || len(calls) < 2 {
+		return v
+	}
+	if c.acceptsParallel(callNames(calls)) {
+		return VerdictAcceptable
+	}
+	return v
+}
+
+// callNames returns the bare tool names of calls, in order.
+func callNames(calls []Call) []string {
+	names := make([]string, len(calls))
+	for i, c := range calls {
+		names[i] = c.Tool
+	}
+	return names
 }
 
 // validateArgs checks args against a tool's input schema in the simple way the
@@ -122,7 +146,8 @@ type Trial struct {
 	Category      string         `json:"category"`
 	Model         string         `json:"model"`
 	Rep           int            `json:"rep"`
-	Chosen        string         `json:"chosen"`
+	Chosen        string         `json:"chosen"`          // first call
+	Calls         []string       `json:"calls,omitempty"` // bare names of all calls, only when there are 2+
 	Args          map[string]any `json:"args,omitempty"`
 	Ideal         string         `json:"ideal"`
 	Acceptable    bool           `json:"acceptable"`
@@ -138,6 +163,15 @@ type Trial struct {
 	Error         string         `json:"error,omitempty"`
 }
 
+// chosenLabel is the first tool, or for a multi-call trial the '+'-joined
+// call names in call order.
+func (t Trial) chosenLabel() string {
+	if len(t.Calls) >= 2 {
+		return strings.Join(t.Calls, "+")
+	}
+	return t.Chosen
+}
+
 // ModelStats is the per-model aggregate.
 type ModelStats struct {
 	Model       string  `json:"model"`
@@ -150,6 +184,7 @@ type ModelStats struct {
 	AcceptPct   float64 `json:"acceptable_pct"` // ideal + acceptable
 	EscapePct   float64 `json:"escape_pct"`
 	NonePct     float64 `json:"none_pct"`
+	MultiPct    float64 `json:"multi_pct"`        // trials with 2+ tool calls / n_effective
 	SchemaPct   float64 `json:"schema_valid_pct"` // of trials with a tool call
 	CostUSD     float64 `json:"cost_usd"`
 	MeanLatency float64 `json:"mean_latency_ms"`
@@ -181,8 +216,8 @@ func pct(n, d int) float64 {
 func summarize(trials []Trial) Report {
 	type acc struct {
 		ModelStats
-		ideal, accept, escape, none, called, valid int
-		latency                                    int64
+		ideal, accept, escape, none, multi, called, valid int
+		latency                                           int64
 	}
 	byModel := map[string]*acc{}
 	var order []string
@@ -214,6 +249,9 @@ func summarize(trials []Trial) Report {
 		case VerdictNone:
 			a.none++
 		}
+		if len(t.Calls) >= 2 && t.Verdict != VerdictTruncated {
+			a.multi++
+		}
 		if t.Chosen != "none" && t.Chosen != "" {
 			a.called++
 			if t.SchemaValid != nil && *t.SchemaValid {
@@ -221,9 +259,10 @@ func summarize(trials []Trial) Report {
 			}
 		}
 		if t.Verdict != VerdictIdeal && t.Verdict != VerdictAcceptable && t.Verdict != VerdictTruncated {
-			k := [3]string{t.Model, t.CaseID, t.Chosen}
+			chosen := t.chosenLabel()
+			k := [3]string{t.Model, t.CaseID, chosen}
 			if conf[k] == nil {
-				conf[k] = &Confusion{Model: t.Model, CaseID: t.CaseID, Ideal: t.Ideal, Chosen: t.Chosen}
+				conf[k] = &Confusion{Model: t.Model, CaseID: t.CaseID, Ideal: t.Ideal, Chosen: chosen}
 			}
 			conf[k].Count++
 		}
@@ -238,6 +277,7 @@ func summarize(trials []Trial) Report {
 		s.AcceptPct = pct(a.accept, s.NEffective)
 		s.EscapePct = pct(a.escape, s.NEffective)
 		s.NonePct = pct(a.none, s.NEffective)
+		s.MultiPct = pct(a.multi, s.NEffective)
 		s.SchemaPct = pct(a.valid, a.called)
 		if a.Trials > 0 {
 			s.MeanLatency = float64(a.latency) / float64(a.Trials)
