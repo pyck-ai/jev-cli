@@ -152,8 +152,8 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 
 func init() {
 	description := "Order 1-250 texts (docs, snippets, results) by relevance to a search query; returns every " +
-		"candidate sorted descending with relevance. Not for choosing between options of a decision (jev_decide, " +
-		"or jev_batch for several). Use jev_match instead for just the single best plus whether anything matches. " +
+		"candidate sorted descending with relevance. Not for ranking the options or answers of a question to pick " +
+		"the best (that is a decision: jev_decide, or jev_batch for several questions). Use jev_match instead for just the single best plus whether anything matches. " +
 		"Fails closed: any bad answer gives status=invalid_response and no ranking."
 	registry.Register(registry.Tool{
 		Name:        "rerank",
