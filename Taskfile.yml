@@ -40,3 +40,8 @@ tasks:
         {{if .CLI_VERBOSE}}--debug{{end}}
         {{.BAKE_EXTRA}}
         {{.CLI_ARGS}}
+
+  eval:toolselect:
+    desc: "Offline tool-selection eval for the jev MCP tools (needs PYCKLLM_API_KEY or --openrouter). Args: -- --models a,b --filter decide --reps 3"
+    cmds:
+      - go run ./eval/toolselect {{.CLI_ARGS}}
