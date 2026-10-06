@@ -250,7 +250,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 
 	want := []string{
 		"ask", "check", "classify", "compare", "decide",
-		"doctor", "extract", "gate", "match", "mcp", "rerank",
+		"doctor", "extract", "gate", "match", "mcp", "models", "rerank",
 		"review", "score", "screen", "verify",
 	}
 	var got []string
@@ -491,4 +491,51 @@ func TestRootCmd_ModelFlagIsPersistentAndReachesDeps(t *testing.T) {
 			t.Errorf("serveMCP model = %q, want empty", got)
 		}
 	})
+}
+
+// TestRootCmd_ModelsCommand: `jev models` is registered in the Info group,
+// listed in --help without building deps, and, when run, reads the model
+// list through the deps' client (here a fake API; cache in a temp dir).
+func TestRootCmd_ModelsCommand(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
+	root.SetArgs([]string{"--help"})
+	var help bytes.Buffer
+	root.SetOut(&help)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(help.String(), "Info:") || !strings.Contains(help.String(), "models") {
+		t.Errorf("--help lacks the Info group / models:\n%s", help.String())
+	}
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path + "?" + r.URL.RawQuery
+		w.Write([]byte(`{"data":[{"id":"liquid/d1","context_length":65536}]}`))
+	}))
+	defer srv.Close()
+	client := openrouter.NewClientWithRoutes(openrouter.Route{Name: openrouter.RouteDirect, BaseURL: srv.URL + "/api/v1", APIKey: "k"}, nil, openrouter.RetryPolicy{MaxAttempts: 1})
+
+	var gotModel string
+	root = newRootCmd(func(model string) *registry.Deps {
+		gotModel = model
+		return &registry.Deps{Client: client}
+	}, func([]registry.Tool, string) {})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"--model", "liquid/d1", "models"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("jev models: %v", err)
+	}
+	if gotPath != "/api/v1/models?output_modalities=decisions" {
+		t.Errorf("requested %q", gotPath)
+	}
+	if gotModel != "liquid/d1" {
+		t.Errorf("deps built with model %q, want the --model value", gotModel)
+	}
+	if !strings.Contains(out.String(), "liquid/d1") || !strings.Contains(out.String(), "65536") {
+		t.Errorf("output = %q", out.String())
+	}
 }

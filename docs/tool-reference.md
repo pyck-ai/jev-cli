@@ -7,6 +7,12 @@ fail-closed status conventions, `auto_accept` threshold semantics, and
 batching rules shared by every tool below, rather than repeating them per
 tool.
 
+Every tool runs on the configured SystemOne decision model (default
+`~typesafe/jev-latest`; the `model` output field names the slug that
+answered). Choose one with `--model`, `tool_model_overrides` or
+`JEV_CLI_MODEL`, and list what exists with `jev models`; see
+[Models](configuration.md#models).
+
 ## The `jev_score` tool
 
 Judges a single piece of text/data against an integer `[scale_min,

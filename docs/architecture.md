@@ -99,11 +99,13 @@ blank-import line from `cmd/jev/main.go`.
 `internal/registry` (see that package's own doc comment for the full
 mechanism and its concurrency argument).
 
+<a id="shared-plumbing"></a>
 Shared plumbing every tool reuses rather than reimplementing:
 
 | Package | What it provides |
 |---|---|
-| `internal/openrouter` | HTTP client: retry/backoff/timeout, and `Client.Ask`, which sends an arbitrary map of named questions (mixed `noul`/`choice`/`score` types) in one SystemOne request. |
+| `internal/openrouter` | HTTP client: retry/backoff/timeout, and `Client.Ask`, which sends an arbitrary map of named questions (mixed `noul`/`choice`/`score` types) in one SystemOne request. Also `Client.GetJSON` (authenticated GET on the active route) and the `Hook` interface (`BeforeAsk` can veto a call, `AfterAsk` observes status/body/latency), registered with `Client.AddHook`. |
+| `internal/models` | SystemOne decision-model catalog (API-sourced, cached 24h), the `jev models` command, and `Guard`, the `Hook` that refuses requests over the model's context length or matching a learned provider 400. See [Models](configuration.md#models). |
 | `internal/answers` | Fail-closed parsing for `noul`/`choice`/`score` answers (`Noul`, `Choice`, `Score`), `NoulLabel` (likely/unlikely/uncertain), and `ResolveThreshold`/`ValidateAutoAccept` for the `auto_accept`-style input fields most tools expose. |
 | `internal/capstring` | Rune-count text truncation for every "capped at N characters" input field. |
 | `internal/budget` | Session spend tracking + pre-call refusal (shared by every tool's handler). |
@@ -154,7 +156,8 @@ cmd/jev/main_test.go           // end-to-end MCP wire-protocol test + MCP and CL
 internal/config/                // config file loading + env overrides
 internal/credentials/           // direct OpenRouter API key resolution: env var, then opencode's auth store
 internal/route/                 // route choice: LiteLLM proxy (probe) preferred, else direct; see configuration.md
-internal/openrouter/            // HTTP client, retry/backoff, SystemOne request/response shapes, Client.Ask
+internal/openrouter/            // HTTP client, retry/backoff, SystemOne request/response shapes, Client.Ask/GetJSON, Hook interface
+internal/models/                // decision-model catalog + cache, `jev models`, pre-send Guard (an openrouter.Hook)
 internal/audit/                 // JSONL audit writer
 internal/budget/                // session spend tracking
 internal/answers/                // shared noul/choice/score answer parsing + threshold helpers

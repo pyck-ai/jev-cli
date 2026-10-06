@@ -357,7 +357,8 @@ recommendation.
 
 | Command / flag | Effect |
 |---|---|
-| `--model <slug>` | Persistent root flag: forces this SystemOne decision model for every tool, over `tool_model_overrides`, `JEV_CLI_MODEL` and `default_model`. |
+| `--model <slug>` | Persistent root flag: forces this SystemOne decision model for every tool, over `tool_model_overrides`, `JEV_CLI_MODEL` and `default_model` (see [Models](configuration.md#models)). |
+| `jev models [--refresh] [-o json]` | Lists the decision models OpenRouter offers (cached 24h; `--refresh` refetches and clears learned limits). Not a tool: no MCP counterpart. |
 
 ### Worked examples
 

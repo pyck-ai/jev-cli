@@ -33,6 +33,7 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/audit"
 	"github.com/pyck-ai/jev-cli/internal/budget"
 	"github.com/pyck-ai/jev-cli/internal/config"
+	"github.com/pyck-ai/jev-cli/internal/models"
 	"github.com/pyck-ai/jev-cli/internal/openrouter"
 	"github.com/pyck-ai/jev-cli/internal/registry"
 	"github.com/pyck-ai/jev-cli/internal/route"
@@ -134,6 +135,7 @@ var errTUINotImplemented = errors.New("the interactive TUI (jev with no argument
 const (
 	groupTools  = "tools"
 	groupServer = "server"
+	groupInfo   = "info"
 )
 
 // selectTools resolves `jev mcp --tools` names to registered tools. Names
@@ -220,6 +222,7 @@ as a set of judgment tools, in three modes:
 	root.AddGroup(
 		&cobra.Group{ID: groupTools, Title: "Tool commands:"},
 		&cobra.Group{ID: groupServer, Title: "Server:"},
+		&cobra.Group{ID: groupInfo, Title: "Info:"},
 	)
 
 	var toolsFlag []string
@@ -248,6 +251,13 @@ list (and its token cost) small:
 	mcpCmd.Flags().StringSliceVar(&toolsFlag, "tools", nil,
 		"Serve only these tools, comma-separated (e.g. verify,check,compare). Names as in `jev --help`; a jev_ prefix is optional. Default: all tools.")
 	root.AddCommand(mcpCmd)
+
+	// `jev models` lists the API's decision models. Its provider is lazy
+	// (RunE only), so `jev --help` still needs no credentials; it reuses
+	// the same deps (and so the same route and guard) as the tools.
+	modelsCmd := models.NewCommand(func() (models.Getter, error) { return newDeps(modelFlag).Client, nil })
+	modelsCmd.GroupID = groupInfo
+	root.AddCommand(modelsCmd)
 
 	toolNames := make(map[string]bool)
 	for _, t := range registry.All() {
@@ -316,6 +326,10 @@ func buildDeps(exitCode int, model string) *registry.Deps {
 		BaseBackoffMs: cfg.Retry.BaseBackoffMs,
 		MaxBackoffMs:  cfg.Retry.MaxBackoffMs,
 	})
+
+	// Pre-send guard: refuses requests the catalog's context length or a
+	// previously learned provider 400 says will fail (see internal/models).
+	client.AddHook(models.NewGuard(client, models.Options{}))
 
 	spend := budget.NewTracker(cfg.Budget.MaxUSDPerSession)
 

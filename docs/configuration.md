@@ -105,7 +105,7 @@ as-is. If present, any field you omit keeps its default value.
 
 | Field | Meaning |
 |---|---|
-| `default_model` | OpenRouter model slug used when a tool has no entry in `tool_model_overrides`. |
+| `default_model` | OpenRouter model slug used when a tool has no entry in `tool_model_overrides`. Built-in default `~typesafe/jev-latest`. See [Models](#models). |
 | `tool_model_overrides` | Per-tool model slug overrides, keyed by tool name (any of the 14 tool names, e.g. `jev_review`, `jev_gate`, ...). Default empty (no tool is pinned). Example: `{"jev_review": "typesafe/jev-1.13"}`. |
 | `budget.max_usd_per_call` | Per-call cost cap in USD. `<= 0` means unlimited. See [Budget enforcement](#budget-enforcement). |
 | `budget.max_usd_per_session` | Cumulative cost cap in USD for this server process's lifetime. `<= 0` means unlimited. |
@@ -118,9 +118,74 @@ as-is. If present, any field you omit keeps its default value.
 
 | Variable | Effect |
 |---|---|
-| `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool; the `--model` flag beats both. |
+| `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool; the `--model` flag beats both. See [Models](#models). |
 | `JEV_CLI_CONFIG_PATH` | Overrides the config file path. |
 | `JEV_CLI_ROUTE`, `PYCKLLM_API_KEY`, `PYCKLLM_BASE_URL` | Route selection; see [Route](#route-litellm-proxy-or-direct-openrouter). |
+
+## Models
+
+jev-cli talks to OpenRouter's SystemOne decision models. No model list is
+hard-coded: slugs, context lengths and prices come from the API
+(`GET <apiBase>/models?output_modalities=decisions`, direct or through the
+proxy, per the active [route](#route-litellm-proxy-or-direct-openrouter)).
+
+### Selecting a model
+
+Highest precedence first (`internal/config`: `ForceModel`, `ModelForTool`,
+`applyEnvOverrides`):
+
+| # | Source | Scope |
+|---|---|---|
+| 1 | `--model <slug>` (persistent root flag, any subcommand incl. `mcp`) | Forces every tool; drops `tool_model_overrides`. |
+| 2 | `tool_model_overrides[tool]` in the config file | That tool only. |
+| 3 | `JEV_CLI_MODEL` | Replaces `default_model` for every tool without an override. |
+| 4 | `default_model` in the config file | Every tool without an override. |
+| 5 | Built-in `~typesafe/jev-latest` | Fallback. |
+
+### `jev models`
+
+`jev models [--refresh] [-o text|json]` lists the catalog: slug (aliases
+shown as `alias -> target`), context length, input price per 1M tokens,
+input modalities, creation date. `-o json` emits
+`{fetched_at, source, models[]}`; `source` is `cache`, `network` or
+`stale-cache`. Needs a usable route/credential like any tool call.
+
+| Item | Behavior |
+|---|---|
+| Catalog cache | `$XDG_CACHE_HOME/jev-cli/models.json` (`os.UserCacheDir`, i.e. `$HOME/.cache/jev-cli/` if unset; `/tmp/.cache/jev-cli/` in the Docker image). Written atomically. |
+| TTL | 24h. A fresh cache is used with no network call. |
+| Fetch fails | Any cache, even expired, is used with a stderr warning. No cache at all: error. A corrupt or unwritable cache is never fatal. |
+| `--refresh` | Refetches regardless of age and deletes the learned limits (below). |
+
+### Pre-send guard
+
+Every call is checked by a client hook (`internal/models/guard.go`, see
+[Architecture](architecture.md#shared-plumbing)) before anything is sent.
+A refusal is a `PreflightError`, surfaced as a normal tool error; nothing
+is billed.
+
+| Check | Behavior |
+|---|---|
+| Context length | Input tokens are estimated as bytes/4 (state JSON plus every question's instructions and criteria). Over the model's catalog `context_length`: refused. `context_length` 0 (unknown): no check. |
+| Unknown model | Slug not in the catalog: one stderr warning per slug, request still sent (the provider's answer is authoritative). |
+| Catalog unavailable | One stderr warning, no checks, request sent. |
+| Learned limits | An HTTP 400 for a catalog model is stored in `limits.json` next to `models.json` for 24h, keyed by request **shape** only (question types, state kind and top-level keys, max choice-option count, log2 size bucket of the state, question count); never the content. An equivalent request is then refused early, quoting the provider's message. "Model does not exist" 400s are not learned. `jev models --refresh` clears them. |
+
+### Model compatibility (observed)
+
+Observation from live calls on 2026-10-06 through the PYCKLLM proxy, not a
+promise; `jev models` is the live source. Models listed by OpenRouter at
+that time (13) were probed with one `noul`, one `choice` and one `score`
+question:
+
+| Result | Models |
+|---|---|
+| Answered all three, no code changes | `~typesafe/jev-latest`, `typesafe/jev-1.13`, `liquid/d1`, `cloudflare/clef`, `cloudflare/clef-flash`, `upstage/solar-decide`, `inception/mercury-decide:free`, `jaredpalmer/kev-4b`, `perplexity/pplx-decider-v1-27b`, `togethercomputer/tev1-4b-experimental` |
+| `noul` only | `respan/span-01*`: a `choice` question gets HTTP 400 (only `noul` questions with plain-string instructions and criteria are accepted). Tools that ask other question types fail with that error. |
+
+Provider limits differ (for example `jaredpalmer/kev-4b` answers an
+oversized input with an opaque 400); the guard learns those on first
+failure.
 
 ## Audit log
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -65,6 +66,40 @@ type Client struct {
 	mu       sync.Mutex
 	active   Route
 	fallback *Route // nil: no failover possible
+	hooks    []Hook // guarded by mu; appended by AddHook
+}
+
+// Hook observes and can veto Ask calls. Implementations must be safe for
+// concurrent use: the MCP server runs tool calls concurrently, so several
+// Asks (and therefore hook calls) can be in flight at once.
+type Hook interface {
+	// BeforeAsk runs before the request is sent. A non-nil error aborts the
+	// call (nothing is sent, AfterAsk is not called) and is returned from
+	// Ask unchanged, so callers can errors.As it. req must not be mutated.
+	BeforeAsk(ctx context.Context, req *Request) error
+	// AfterAsk runs once per Ask that reached the network, with the HTTP
+	// status (0 on a transport error), the raw response body (nil when none
+	// arrived), the parsed response (nil on failure), the final error
+	// returned from Ask (nil on success), and the total latency including
+	// retries. req and body must not be mutated or retained.
+	AfterAsk(ctx context.Context, req *Request, status int, body []byte, resp *Response, err error, latency time.Duration)
+}
+
+// AddHook registers h. Hooks run in registration order (BeforeAsk stops at
+// the first error). Safe for concurrent use.
+func (c *Client) AddHook(h Hook) {
+	if h == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hooks = append(c.hooks, h)
+}
+
+func (c *Client) hookList() []Hook {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Hook(nil), c.hooks...)
 }
 
 // NewClient creates a Client for the real OpenRouter SystemOne endpoint.
@@ -180,13 +215,29 @@ func (c *Client) Ask(ctx context.Context, model string, questions map[string]Que
 		Questions: questions,
 		State:     state,
 	}
+	hooks := c.hookList()
+	for _, h := range hooks {
+		if err := h.BeforeAsk(ctx, &reqBody); err != nil {
+			return nil, err
+		}
+	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: marshaling request: %w", err)
 	}
 
+	start := time.Now()
 	status, respBody, err := c.doWithRetry(ctx, http.MethodPost, func(r Route) string { return r.Endpoint }, body, timeout)
-	out, err := parseAskResponse(status, respBody)
+	var out *Response
+	if err == nil {
+		out, err = parseAskResponse(status, respBody)
+	}
+	if len(hooks) > 0 {
+		latency := time.Since(start)
+		for _, h := range hooks {
+			h.AfterAsk(ctx, &reqBody, status, respBody, out, err, latency)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +271,36 @@ func parseAskResponse(status int, respBody []byte) (*Response, error) {
 		return nil, fmt.Errorf("openrouter: parsing response body: %w", err)
 	}
 	return &out, nil
+}
+
+// GetTimeout bounds the total time of one GetJSON call, across retries.
+const GetTimeout = 30 * time.Second
+
+// GetJSON performs an authenticated GET of path (for example
+// "/models?output_modalities=decisions") relative to the active route's
+// BaseURL, and decodes the 2xx JSON response body into out. It sends the
+// same Bearer credential as Ask, shares Ask's retry/backoff and
+// proxy-to-direct failover semantics (a GET is idempotent, and the
+// failover re-targets the direct route's BaseURL), and applies GetTimeout
+// as one deadline across all attempts (a shorter ctx deadline wins). A non-2xx response is
+// returned as *APIError. The key is never part of any returned error.
+func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	status, respBody, err := c.doWithRetry(ctx, http.MethodGet, func(r Route) string {
+		return strings.TrimRight(r.BaseURL, "/") + path
+	}, nil, GetTimeout)
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return parseAPIError(status, respBody)
+	}
+	if err := json.Unmarshal(respBody, out); err != nil {
+		return fmt.Errorf("openrouter: parsing response body: %w", err)
+	}
+	return nil
 }
 
 // doWithRetry performs the HTTP round trip, retrying on retryable status

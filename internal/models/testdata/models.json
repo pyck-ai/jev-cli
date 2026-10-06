@@ -1,0 +1,242 @@
+{
+ "data": [
+  {
+   "id": "perplexity/pplx-decider-v1-27b",
+   "canonical_slug": "perplexity/pplx-decider-v1-27b-20261001",
+   "hugging_face_id": null,
+   "name": "Perplexity: Decider V1 27B",
+   "created": 1790886451,
+   "description": "Decider V1 27B is a decision model from Perplexity. Instead of generating text, it reads content passed as `state` and returns typed, probabilistic answers to one or more named questions...",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text+image->decisions",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "decisions"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.00000004",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 235929,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/perplexity/pplx-decider-v1-27b-20261001/endpoints"
+   }
+  },
+  {
+   "id": "liquid/d1",
+   "canonical_slug": "liquid/d1-20260930",
+   "hugging_face_id": null,
+   "name": "LiquidAI: d1",
+   "created": 1790878711,
+   "description": "d1 is Liquid AI's structured decision model, served as a System One endpoint. Send a state along with typed questions, and it returns a choice, a score, or a yes/no...",
+   "context_length": 65536,
+   "architecture": {
+    "modality": "text->decisions",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "decisions"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.00000004",
+    "completion": "0",
+    "input_cache_read": "0.00000004"
+   },
+   "top_provider": {
+    "context_length": 65536,
+    "max_completion_tokens": 58982,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/liquid/d1-20260930/endpoints"
+   }
+  },
+  {
+   "id": "inception/mercury-decide:free",
+   "canonical_slug": "inception/mercury-decide-20260930",
+   "hugging_face_id": null,
+   "name": "Inception: Mercury Decide (free)",
+   "created": 1790789334,
+   "description": "Mercury Decide is Inception's structured decision model, served as a System One endpoint. Send a state along with typed questions, and it returns a choice, a score, or a yes/no...",
+   "context_length": 32768,
+   "architecture": {
+    "modality": "text->decisions",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "decisions"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 32768,
+    "max_completion_tokens": 29491,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/inception/mercury-decide-20260930/endpoints"
+   }
+  },
+  {
+   "id": "respan/span-01",
+   "canonical_slug": "respan/span-01-20260925",
+   "hugging_face_id": null,
+   "name": "Respan: Span-01",
+   "created": 1790387550,
+   "description": "Span-01 is a behavior scoring model from Respan. It reads a conversation span and returns, for each plain-language behavior you define, the probability that the behavior is present. It is...",
+   "context_length": 0,
+   "architecture": {
+    "modality": "text->decisions",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "decisions"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.00000002",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 0,
+    "max_completion_tokens": 0,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/respan/span-01-20260925/endpoints"
+   }
+  },
+  {
+   "id": "~typesafe/jev-latest",
+   "canonical_slug": "~typesafe/jev-latest",
+   "alias_target": {
+    "name": "TypeSafe: Jev 1.13",
+    "slug": "typesafe/jev-1.13"
+   },
+   "hugging_face_id": null,
+   "name": "TypeSafe: Jev Latest",
+   "created": 1789689685,
+   "description": "This model always redirects to the latest model in the Jev family.",
+   "context_length": 32000,
+   "architecture": {
+    "modality": "text->decisions",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "decisions"
+    ],
+    "tokenizer": "Router",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000000042",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 32000,
+    "max_completion_tokens": 28800,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/~typesafe/jev-latest/endpoints"
+   }
+  },
+  {
+   "id": "typesafe/jev-1.13",
+   "canonical_slug": "typesafe/jev-1.13-20260917",
+   "hugging_face_id": null,
+   "name": "TypeSafe: Jev 1.13",
+   "created": 1789689684,
+   "description": "Jev is a structured decision model from TypeSafe, and the first of its System One models. System One models make fast, structured decisions for software, returning a typed choice rather...",
+   "context_length": 32000,
+   "architecture": {
+    "modality": "text->decisions",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "decisions"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000000042",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 32000,
+    "max_completion_tokens": 28800,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/typesafe/jev-1.13-20260917/endpoints"
+   }
+  }
+ ],
+ "total_count": 6,
+ "links": {
+  "next": null
+ }
+}

@@ -84,7 +84,9 @@ docker run --rm -i --user "$(id -u):$(id -g)" -e OPENROUTER_API_KEY \
   any `--user uid:gid` works.
 - `HOME=/tmp` (world-writable) because jev resolves its config dir and audit
   log from `$HOME` at startup and exits 3 without one. Audit writes are
-  best-effort, and the audit log is lost with the container.
+  best-effort, and the audit log is lost with the container. The model
+  cache lands in `/tmp/.cache/jev-cli/` (`os.UserCacheDir` under
+  `HOME=/tmp`), also lost with the container.
 - The key comes from `OPENROUTER_API_KEY`; opencode's auth store is not
   present in the container.
 
@@ -98,8 +100,12 @@ Use it as a CLI:
 ```sh
 jev score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
 jev --help
+jev models                         # list the SystemOne decision models OpenRouter offers
 jev --model liquid/d1 score ...    # force one model for every tool
 ```
+
+Model selection, the `jev models` cache and the pre-send guard:
+[Configuration](docs/configuration.md#models).
 
 Or as an MCP server: `jev mcp` speaks MCP over stdio, so an MCP client's
 server command is `jev mcp` (add `--tools verify,check,...` to serve only

@@ -12,7 +12,9 @@ summarizes and links here rather than restating.
 (LiteLLM proxy or direct OpenRouter) and API key (env var, then opencode's own
 credential store), the optional config
 file and its environment-variable overrides, the JSON-lines audit log every
-call writes, and how the per-call/session budget caps are enforced.
+call writes, how the per-call/session budget caps are enforced, and
+[model selection](configuration.md#models) (`--model`, precedence,
+`jev models`, the model cache and the pre-send guard).
 
 **[Architecture](architecture.md)** — how every tool is a self-registering
 plugin, and how to add or remove one; the shared plumbing packages every
