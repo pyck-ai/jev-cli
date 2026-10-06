@@ -205,7 +205,7 @@ Every line has `ts`, `kind`, `session`. `call_id` ties a `tool_call` to its N `s
 
 Limits: CLI `tool_call` records carry the subcommand and argv only (written before the tool runs, since tools `os.Exit` with the verdict code), no output or latency; the CLI's output is in the `systemone` `response`. The guard wrapper records vetoes but the guard's learned-limit behavior is unchanged.
 
-Analyze: `jev record summarize <file-or-dir>` prints calls, share, errors, error rate and average latency per tool and per model, plus MCP clients. Or with jq:
+Analyze: `jev record summarize <file-or-dir>` prints calls, share, errors, error rate and average latency per tool (CLI `check` and MCP `jev_check` count as one) and per model, plus MCP clients. Or with jq:
 
 ```sh
 jq -r 'select(.kind=="tool_call") | .tool' <dir>/*.jsonl | sort | uniq -c | sort -rn

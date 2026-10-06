@@ -45,17 +45,24 @@ func TestSummarize(t *testing.T) {
 	lat := 100.0
 	r.Session(Record{Mode: "mcp"})
 	r.Write(Record{Kind: KindToolCall, Tool: "jev_ask", IsError: &no, LatencyMS: &lat})
-	r.Write(Record{Kind: KindToolCall, Tool: "jev_ask", IsError: &yes, LatencyMS: &lat})
+	// The CLI records the bare name; it must merge with MCP's jev_ask.
+	r.Write(Record{Kind: KindToolCall, Transport: "cli", Tool: "ask", IsError: &yes, LatencyMS: &lat})
 	r.Write(Record{Kind: KindSystemOne, Model: "m", LatencyMS: &lat})
 	r.Close()
 	s, err := Summarize(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(s.Tools) != 1 || s.Tools["ask"] == nil || s.Tools["ask"].n != 2 {
+		t.Errorf("want one tool row ask with 2 calls, got %v", s.Tools)
+	}
 	var buf bytes.Buffer
 	s.Render(&buf)
 	out := buf.String()
-	for _, want := range []string{"tool calls: 2", "jev_ask", "50%", "100 ms", "model"} {
+	if strings.Contains(out, "jev_ask") {
+		t.Errorf("summary still names jev_ask:\n%s", out)
+	}
+	for _, want := range []string{"tool calls: 2", "ask", "50%", "100 ms", "model"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary lacks %q:\n%s", want, out)
 		}
