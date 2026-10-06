@@ -209,7 +209,7 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 	}
 
 	want := []string{
-		"jev_ask", "jev_check", "jev_classify", "jev_compare", "jev_decide",
+		"jev_ask", "jev_batch", "jev_check", "jev_classify", "jev_compare", "jev_decide",
 		"jev_doctor", "jev_extract", "jev_gate", "jev_match", "jev_rerank",
 		"jev_review", "jev_score", "jev_screen", "jev_verify",
 	}
@@ -235,6 +235,21 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 	}
 }
 
+// TestEveryToolExceptDoctorAndBatchHasRun is the tripwire that keeps jev_batch
+// complete: a new tool that forgets its `Run:` line would silently be
+// unbatchable. doctor is not a judgment and batch cannot nest.
+func TestEveryToolExceptDoctorAndBatchHasRun(t *testing.T) {
+	for _, tl := range registry.All() {
+		excluded := tl.Name == "doctor" || tl.Name == "batch"
+		if excluded && tl.Run != nil {
+			t.Errorf("tool %q must not be batchable but has Run set", tl.Name)
+		}
+		if !excluded && tl.Run == nil {
+			t.Errorf("tool %q has no Run: add `Run: registry.Runner(...)` to its Register call", tl.Name)
+		}
+	}
+}
+
 // noDepsProvider fails the test if a tool actually tries to build its
 // dependencies: none of the tests below run a tool.
 func noDepsProvider(t *testing.T) func(string) *registry.Deps {
@@ -252,7 +267,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
 
 	want := []string{
-		"ask", "check", "classify", "compare", "decide",
+		"ask", "batch", "check", "classify", "compare", "decide",
 		"doctor", "extract", "gate", "match", "mcp", "models", "record", "rerank",
 		"review", "score", "screen", "verify",
 	}
@@ -683,6 +698,152 @@ func TestEndToEnd_Recording(t *testing.T) {
 			t.Errorf("files created: %v", entries)
 		}
 	})
+}
+
+// TestEndToEnd_Batch drives jev_batch over the in-memory MCP transport with
+// recording on: tools/list includes it with a plain-object item input, a call
+// with 2 decide + 1 check items returns structured per-item results in input
+// order, an invalid item fails alone, a malformed batch is a tool error, and
+// every systemone record shares the one tool_call's call_id.
+func TestEndToEnd_Batch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req openrouter.Request
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		answers := map[string]json.RawMessage{}
+		for k := range req.Questions {
+			if k == "decision" {
+				answers[k] = json.RawMessage(`{"type":"choice","choice":"a","confidence":0.9,"probabilities":{"a":0.9,"b":0.1}}`)
+			} else {
+				answers[k] = json.RawMessage(`{"type":"noul","noul":0.9}`)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(openrouter.Response{Answers: answers, Model: "m", Usage: &openrouter.Usage{Cost: 0.00002}})
+	}))
+	defer srv.Close()
+
+	cfg := config.Default()
+	client := openrouter.NewClientWithEndpoint("test-key", srv.URL, openrouter.RetryPolicy{MaxAttempts: 1, BaseBackoffMs: 1, MaxBackoffMs: 5})
+	dir := filepath.Join(t.TempDir(), "rec")
+	rec := record.New(dir, time.Now(), 4242)
+	installHooks(client, rec, nil)
+	deps := &registry.Deps{Client: client, Config: cfg, Budget: budget.NewTracker(cfg.Budget.MaxUSDPerSession), Audit: audit.NewLogger(t.TempDir() + "/audit.jsonl")}
+	server := newRecordedServer(deps, registry.All(), rec)
+	rec.Session(sessionRecord("mcp", deps, registry.All(), nil, ""))
+	defer rec.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	t1, t2 := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v9"}, nil).Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+
+	lt, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *mcp.Tool
+	for _, tool := range lt.Tools {
+		if tool.Name == "jev_batch" {
+			found = tool
+		}
+	}
+	if found == nil {
+		t.Fatal("tools/list lacks jev_batch")
+	}
+	if schema := string(mustJSON(found.InputSchema)); !strings.Contains(schema, `"input":{"additionalProperties":true`) || !strings.Contains(schema, `"type":"object"`) {
+		t.Errorf("jev_batch input schema does not describe item input as a plain object: %s", schema)
+	}
+
+	decideIn := func(pick string) map[string]any {
+		return map[string]any{"decision": "d " + pick, "evidence": "e", "priorities": "p", "candidates": []any{
+			map[string]any{"id": "a", "description": "A"}, map[string]any{"id": "b", "description": "B"}}}
+	}
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "jev_batch", Arguments: map[string]any{"items": []any{
+		map[string]any{"id": "q1", "tool": "decide", "input": decideIn("1")},
+		map[string]any{"id": "bad", "tool": "decide", "input": map[string]any{"decision": "no candidates"}},
+		map[string]any{"id": "q2", "tool": "jev_decide", "input": decideIn("2")},
+		map[string]any{"id": "sanity", "tool": "check", "input": map[string]any{"context": "c", "propositions": []any{"p"}}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError: %+v", res.Content)
+	}
+	var out struct {
+		Results []struct {
+			Index    int             `json:"index"`
+			ID       string          `json:"id"`
+			Tool     string          `json:"tool"`
+			Status   string          `json:"status"`
+			ExitCode int             `json:"exit_code"`
+			Output   json.RawMessage `json:"output"`
+			Error    string          `json:"error"`
+		} `json:"results"`
+		Summary struct {
+			Items, OK, Error int
+			ExitCode         int `json:"exit_code"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(mustJSON(res.StructuredContent), &out); err != nil {
+		t.Fatal(err)
+	}
+	wantIDs := []string{"q1", "bad", "q2", "sanity"}
+	wantStatus := []string{"ok", "error", "ok", "ok"}
+	if len(out.Results) != 4 {
+		t.Fatalf("results = %+v", out.Results)
+	}
+	for i, r := range out.Results {
+		if r.Index != i || r.ID != wantIDs[i] || r.Status != wantStatus[i] {
+			t.Errorf("results[%d] = %+v", i, r)
+		}
+	}
+	if out.Results[1].Error == "" || len(out.Results[1].Output) != 0 || out.Results[0].Output == nil {
+		t.Errorf("error/output fields wrong: %+v", out.Results[:2])
+	}
+	if out.Summary.Items != 4 || out.Summary.OK != 3 || out.Summary.Error != 1 || out.Summary.ExitCode != 3 {
+		t.Errorf("summary = %+v", out.Summary)
+	}
+
+	bad, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "jev_batch", Arguments: map[string]any{"items": []any{
+		map[string]any{"tool": "doctor", "input": map[string]any{}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bad.IsError {
+		t.Error("batch containing doctor must be a tool error")
+	}
+
+	// Recording: all systemone records of the first batch call share its call_id.
+	var batchCall string
+	var soIDs []string
+	for _, r := range readRecords(t, dir) {
+		switch r["kind"] {
+		case "tool_call":
+			if r["tool"] == "jev_batch" && batchCall == "" {
+				batchCall = r["call_id"].(string)
+			}
+		case "systemone":
+			soIDs = append(soIDs, r["call_id"].(string))
+		}
+	}
+	if batchCall == "" || len(soIDs) != 3 {
+		t.Fatalf("batchCall=%q systemone call_ids=%v, want 3 records", batchCall, soIDs)
+	}
+	for _, id := range soIDs {
+		if id != batchCall {
+			t.Errorf("systemone call_id %q != jev_batch tool_call %q", id, batchCall)
+		}
+	}
 }
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }

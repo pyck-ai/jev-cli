@@ -2,10 +2,10 @@
 
 jev-cli exposes [OpenRouter](https://openrouter.ai)'s SystemOne decision
 models (default: TypeSafe's **Jev**, `~typesafe/jev-latest`; pick another
-with `--model`) as 14 tools -- as an
+with `--model`) as 15 tools -- as an
 MCP (Model Context Protocol) server for [opencode](https://opencode.ai) or
 any other MCP-compatible client, **and** as a plain Unix CLI (`jev score
-...`, `jev verify ...`, ...) for everything else. Same 14 tools, same
+...`, `jev verify ...`, ...) for everything else. Same 15 tools, same
 underlying logic, either way -- see
 [Two run modes, one registration](docs/architecture.md#two-run-modes-one-registration).
 
@@ -18,13 +18,14 @@ SystemOne primitives -- `noul` (probability a statement holds), `choice`
 (probability distribution over a fixed option set), and `score` (probability
 distribution over an integer scale) -- batched, composed, and thresholded
 for a specific job. `jev_ask` is the escape hatch: it exposes those
-primitives almost directly for anything the other 13 tools don't cover.
+primitives almost directly for anything the other 14 tools don't cover.
 
 Out of the box, jev-cli includes:
 
-- **14 tools** — `jev_score`, `jev_verify`, `jev_screen`, `jev_check`,
+- **15 tools** — `jev_score`, `jev_verify`, `jev_screen`, `jev_check`,
   `jev_match`, `jev_rerank`, `jev_classify`, `jev_decide`, `jev_compare`,
-  `jev_extract`, `jev_review`, `jev_gate`, `jev_doctor`, and `jev_ask`. See
+  `jev_extract`, `jev_review`, `jev_gate`, `jev_doctor`, `jev_ask`, and `jev_batch` (runs several independent tool calls
+  concurrently in one call). See
   [Tool reference](docs/tool-reference.md) for the full input/output spec of
   each.
 - **Both an MCP server and a CLI, from one binary**: `jev mcp` speaks MCP

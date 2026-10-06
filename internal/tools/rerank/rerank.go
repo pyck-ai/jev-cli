@@ -151,8 +151,9 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Rank 1-250 candidates by relevance to a query; returns every candidate sorted descending with " +
-		"relevance. Use jev_match instead for just the single best plus whether anything matches. " +
+	description := "Order 1-250 texts (docs, snippets, results) by relevance to a search query; returns every " +
+		"candidate sorted descending with relevance. Not for choosing between options of a decision (jev_decide, " +
+		"or jev_batch for several). Use jev_match instead for just the single best plus whether anything matches. " +
 		"Fails closed: any bad answer gives status=invalid_response and no ranking."
 	registry.Register(registry.Tool{
 		Name:        "rerank",
@@ -168,6 +169,9 @@ func init() {
 		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
 			root.AddCommand(newCLICommand(provider, description))
 		},
+		Run: registry.Runner(func(ctx context.Context, d *registry.Deps, in RerankInput) (RerankOutput, error) {
+			return NewRerankHandler(d.Client, d.Config, d.Budget, d.Audit).run(ctx, in)
+		}, exitCode),
 	})
 }
 

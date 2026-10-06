@@ -26,7 +26,7 @@ suite (and why no `OPENROUTER_API_KEY` is needed to do so), sanity-check it
 standalone over stdio, and register it with opencode.
 
 **[Tool reference](tool-reference.md)** — the full input/output spec and an
-example call/response for each of the 14 tools. Dense reference material,
+example call/response for each of the 15 tools. Dense reference material,
 meant to be searched rather than read front-to-back.
 
 ## Maintenance

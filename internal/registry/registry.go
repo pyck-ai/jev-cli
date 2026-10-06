@@ -40,6 +40,14 @@
 package registry
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"strings"
+	"sync"
+
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
@@ -118,6 +126,73 @@ type Tool struct {
 	// provider itself exits the process on failure (see cmd/jev/main.go's
 	// buildDeps), so a subcommand's RunE can treat its result as ready.
 	RegisterCLI func(root *cobra.Command, deps DepsProvider)
+	// Run executes one invocation of this tool from raw JSON input (the
+	// same object an MCP client or `-j` would pass) and returns its output,
+	// its CLI exit code and any error. Build it with Runner. nil means the
+	// tool cannot be run through jev_batch (doctor, batch itself, and any
+	// tool not yet wired).
+	Run RunFunc
+}
+
+// RunFunc runs one tool invocation from raw JSON input. A non-nil err means
+// the run failed (invalid input, refused, transport error) and out is nil;
+// exitCode is then 3. Otherwise exitCode is the tool's own output-to-exit-code
+// mapping (0 good, 1 review, 2 escalate, 3 hard failure).
+type RunFunc func(ctx context.Context, deps *Deps, input json.RawMessage) (out any, exitCode int, err error)
+
+// Runner adapts a tool's typed run core plus its exit-code mapping into a
+// RunFunc. Input is validated exactly as on the MCP path: against the JSON
+// schema the go-sdk reflects from I (required fields, types, no unknown
+// properties, defaults applied), then decoded into I. The schema is built
+// lazily on first use, so JSONSCHEMAGODEBUG set in main() is honored.
+func Runner[I, O any](run func(ctx context.Context, deps *Deps, in I) (O, error), exitCode func(O) int) RunFunc {
+	var (
+		once     sync.Once
+		resolved *jsonschema.Resolved
+		schemaEr error
+	)
+	return func(ctx context.Context, deps *Deps, raw json.RawMessage) (any, int, error) {
+		once.Do(func() {
+			rt := reflect.TypeFor[I]()
+			if rt.Kind() == reflect.Pointer {
+				rt = rt.Elem()
+			}
+			var s *jsonschema.Schema
+			if s, schemaEr = jsonschema.ForType(rt, &jsonschema.ForOptions{}); schemaEr == nil {
+				resolved, schemaEr = s.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+			}
+		})
+		if schemaEr != nil {
+			return nil, 3, fmt.Errorf("input schema: %w", schemaEr)
+		}
+
+		args := make(map[string]any)
+		if len(strings.TrimSpace(string(raw))) > 0 {
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return nil, 3, fmt.Errorf("unmarshaling arguments: %w", err)
+			}
+		}
+		var tree any = args
+		if err := resolved.ApplyDefaults(&tree); err != nil {
+			return nil, 3, fmt.Errorf("applying schema defaults: %w", err)
+		}
+		if err := resolved.Validate(&tree); err != nil {
+			return nil, 3, fmt.Errorf("validating \"arguments\": %w", err)
+		}
+		withDefaults, err := json.Marshal(tree)
+		if err != nil {
+			return nil, 3, fmt.Errorf("marshalling arguments: %w", err)
+		}
+		var in I
+		if err := json.Unmarshal(withDefaults, &in); err != nil {
+			return nil, 3, fmt.Errorf("parsing input: %w", err)
+		}
+		out, err := run(ctx, deps, in)
+		if err != nil {
+			return nil, 3, err
+		}
+		return out, exitCode(out), nil
+	}
 }
 
 // tools accumulates every Tool passed to Register, in call order. See the
@@ -138,4 +213,15 @@ func Register(t Tool) {
 // whichever set of tool packages cmd/jev/main.go blank-imports.
 func All() []Tool {
 	return tools
+}
+
+// Lookup returns the registered Tool whose CLI name ("decide") or MCP name
+// ("jev_decide") equals name.
+func Lookup(name string) (Tool, bool) {
+	for _, t := range tools {
+		if t.Name == name || t.MCPName == name {
+			return t, true
+		}
+	}
+	return Tool{}, false
 }

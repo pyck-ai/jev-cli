@@ -12,6 +12,7 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/registry"
 	// Blank imports register every tool, exactly like cmd/jev/main.go.
 	_ "github.com/pyck-ai/jev-cli/internal/tools/ask"
+	_ "github.com/pyck-ai/jev-cli/internal/tools/batch"
 	_ "github.com/pyck-ai/jev-cli/internal/tools/check"
 	_ "github.com/pyck-ai/jev-cli/internal/tools/classify"
 	_ "github.com/pyck-ai/jev-cli/internal/tools/compare"

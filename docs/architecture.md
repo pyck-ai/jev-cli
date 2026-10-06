@@ -20,7 +20,7 @@ Every tool is a self-registering plugin, modeled directly on Go's
   `Client`/`Config`/`Budget`/`Audit` infrastructure) and calls
   `mcp.AddTool` against whatever `*mcp.Server` it's given, and a
   `RegisterCLI` closure that does the equivalent for a `*cobra.Command`
-  (every one of the 14 tools populates both today -- see
+  (every one of the 15 tools populates both today -- see
   [CLI mode](#cli-mode) below).
 - `cmd/jev/main.go` activates the whole tool set with one blank import per tool
   package (`_ "github.com/pyck-ai/jev-cli/internal/tools/<name>"`), builds
@@ -90,7 +90,7 @@ one's tests can catch a behavior regression.
 `<name>`) whose `init()` registers itself — see `internal/tools/check`'s
 `check.go` for a compact reference implementation, or
 `internal/tools/score`'s `score.go` for the original tool this architecture
-was extracted from. Then add one blank-import line to `cmd/jev/main.go`.
+was extracted from. Set `Run: registry.Runner(...)` in the `Register` call (what makes it batchable via `jev_batch`; `cmd/jev`'s `TestEveryToolExceptDoctorAndBatchHasRun` enforces it). Then add one blank-import line to `cmd/jev/main.go`.
 
 **Removing a tool**: delete that package directory, then delete its
 blank-import line from `cmd/jev/main.go`.
@@ -180,4 +180,5 @@ internal/tools/
   reviewcore/                   // scoring/composite/action logic shared by review + gate
   doctor/                       // jev_doctor
   ask/                          // jev_ask
+  batch/                        // jev_batch (fans items out to other tools via registry.Lookup + Tool.Run)
 ```

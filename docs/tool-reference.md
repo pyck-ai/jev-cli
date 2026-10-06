@@ -1,6 +1,6 @@
 # Tool reference
 
-Input/output reference for all 14 jev-cli tools, one section per tool: an
+Input/output reference for all 15 jev-cli tools, one section per tool: an
 input table, an output table, and an example call/response. See
 [Architecture](architecture.md#conventions-shared-by-every-tool) for the
 fail-closed status conventions, `auto_accept` threshold semantics, and
@@ -852,3 +852,44 @@ jev ask --state '"Refund requested, item arrived broken."' \
   --questions '{"is_billing":{"type":"noul","instructions":"Is this billing related?","criteria":{"false":"no","true":"yes"}}}'
 ```
 (`--state` is a string-or-JSON field, same as `jev_verify`'s `--evidence`.)
+
+## The `jev_batch` tool
+
+Runs several independent tool calls in one call. Each item is dispatched to
+that tool's own run core (via `registry.Lookup` + `Tool.Run`), so it is
+validated, audited, budgeted and recorded exactly like a direct call.
+Nothing is merged on the wire: N items are N SystemOne requests, run
+concurrently (default 4, max 8, `max_concurrency`). Every tool except `doctor`
+is batchable (`doctor` and nested `batch` are refused; a tool without a `Run`
+entry would get a per-item `does not support batch yet` error, which a
+`cmd/jev` test prevents).
+
+### Input
+
+```json
+{"items": [
+  {"id": "q1", "tool": "decide", "input": {"decision": "...", "evidence": "...", "priorities": "...", "candidates": [{"id": "a", "description": "..."}, {"id": "b", "description": "..."}]}},
+  {"id": "sanity", "tool": "check", "input": {"context": "...", "propositions": ["..."]}}
+], "max_concurrency": 4}
+```
+
+`items`: 1-32 entries `{id?, tool, input}` (`tool` with or without the
+`jev_` prefix; `input` is that tool's own input object, unknown fields
+rejected). A malformed batch (empty, more than 32, unknown tool, nested
+batch, doctor, bad `max_concurrency`) is a tool error / CLI exit 3.
+
+### Output
+
+`results[]` in input order: `{index, id?, tool, status: "ok"|"error",
+exit_code, output | error}` where `output` is byte-identical to a direct
+call's output. `summary`: `{items, ok, error, exit_code (max of item exit
+codes), cost_usd?, latency_ms, budget_exceeded?}`. Items fail
+independently; the session budget is re-checked before each launch. Audit
+keeps each item's own line plus one `jev_batch` summary line.
+
+```sh
+jev batch -j - <<< '{"items": [{"tool": "check", "input": {"propositions": ["Go is compiled"]}}]}'
+```
+
+The CLI defaults to `-o json` (the per-tool outputs are heterogeneous) and
+exits with `summary.exit_code`.

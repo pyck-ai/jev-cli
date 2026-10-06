@@ -83,43 +83,48 @@
     },
     {
       "id": "decide-batch-three",
-      "category": "decide-batch",
+      "category": "batch",
       "prompt": "I need three independent calls made for the billing refactor. (1) Which fix for the rounding bug: round half-even in the money type, or round at the invoice line level? (2) Which scope: only the invoice service, or all services that touch amounts? (3) Which cut-over: feature flag per tenant, or a single release? Please settle all three.",
-      "ideal": "decide",
+      "ideal": "batch",
       "acceptable": [
+        "decide",
         "ask"
       ],
-      "notes": "Several independent decisions in one message cannot be one decide call: first decide call is ideal, one ask call with several choice questions is acceptable."
+      "notes": "Three independent decisions in one message: one batch call is ideal; a single decide call (the first of several sequential ones) or one ask with several choice questions is acceptable."
     },
     {
       "id": "decide-batch-two",
-      "category": "decide-batch",
+      "category": "batch",
       "prompt": "Two separate questions for the infra cleanup: which queue to keep, RabbitMQ or SQS, given we are fully on AWS; and separately, should the cron jobs move to Kubernetes CronJobs or stay on the old scheduler host? Give me an independent pick for each.",
-      "ideal": "decide",
+      "ideal": "batch",
       "acceptable": [
+        "decide",
         "ask"
       ],
       "notes": "Two independent decisions, same reasoning as decide-batch-three."
     },
     {
       "id": "decide-batch-four",
-      "category": "decide-batch",
+      "category": "batch",
       "prompt": "Before I start the API v2 work, decide: auth scheme (API keys vs OAuth client credentials), error format (RFC 7807 vs custom envelope), versioning (URL path vs header), and rate limiting (per key vs per IP). One pick each please.",
-      "ideal": "decide",
+      "ideal": "batch",
       "acceptable": [
+        "decide",
         "ask"
       ],
-      "notes": "Four independent decisions batched; multiple decide calls or one ask are both defensible."
+      "notes": "Four independent decisions, one pick each: batch is ideal; decide (sequential calls) or ask (several choice questions) are defensible."
     },
     {
       "id": "decide-plus-tradeoff",
-      "category": "decide-plus-checks",
+      "category": "batch",
       "prompt": "Pick between option A (denormalise the order totals into the orders table) and option B (compute totals in a view). Then also tell me whether B's extra read latency of roughly 3 ms is acceptable for our 50 ms p95 budget.",
-      "ideal": "decide",
+      "ideal": "batch",
       "acceptable": [
+        "decide",
+        "check",
         "ask"
       ],
-      "notes": "A decision plus an acceptability check on one option: decide with requirements covers it; ask is acceptable for the mixed question set."
+      "notes": "A decision plus an acceptability check on one option: batch (one decide input + one check input) is ideal; decide with requirements, a single check, or ask for the mixed question set are defensible."
     },
     {
       "id": "decide-plus-requirements",
@@ -151,13 +156,14 @@
     },
     {
       "id": "score-multi-rubric",
-      "category": "score",
+      "category": "batch",
       "prompt": "Review this design doc summary against our rubric and give each a 1-5 score: alignment of stakeholders, clarity of scope, testability of requirements, and risk coverage. Summary: 'We will replace the nightly export with streaming. Stakeholders: data team. Scope: exports only. Requirements: lower latency. Risks: TBD.'",
-      "ideal": "score",
+      "ideal": "batch",
       "acceptable": [
+        "score",
         "ask"
       ],
-      "notes": "Several rubrics at once on the same text: one score call per rubric or one ask with several score questions."
+      "notes": "Four rubrics on the same text: batch of score items is ideal; one score call per rubric (sequential) or one ask with several score questions are acceptable."
     },
     {
       "id": "score-answer-quality",
@@ -522,6 +528,62 @@
       "ideal": "none",
       "acceptable": [],
       "notes": "Control: no judgment requested. Not a tool-misuse measure for the tools; 'none' is correct."
+    },
+    {
+      "id": "batch-rank-question-options",
+      "category": "batch",
+      "prompt": "I'm about to ask the user three questions and want a ranked suggestion with a confidence for every option first. Q1: How should we store session data? Options: signed cookies, Redis, database table. Q2: Which deploy window? Options: weekday morning, weekday evening, weekend. Q3: How should the CLI report errors? Options: plain text, JSON lines, both behind a flag. Give me a confidence for each option of each question.",
+      "ideal": "batch",
+      "acceptable": [],
+      "notes": "Modelled on the real pattern (many jev_ask calls to rank question options for the question tool): several independent questions with 3 options each, a confidence per option. One batch of decide items is ideal; no single tool covers it."
+    },
+    {
+      "id": "batch-rank-question-options-four",
+      "category": "batch",
+      "prompt": "Before I put these to the user, rank the answers to each question and give a confidence for every option. (1) Branch strategy: trunk-based or release branches? (2) Changelog: hand-written, generated from commits, or generated from PR titles? (3) Test data: fixtures in the repo, factories, or a shared staging snapshot? (4) Alerts: page on-call immediately, or batch into a morning digest?",
+      "ideal": "batch",
+      "acceptable": [
+        "decide",
+        "ask"
+      ],
+      "notes": "Four independent questions with 2-3 options each, confidence per option. Batch is ideal; sequential decide calls or one ask are defensible."
+    },
+    {
+      "id": "batch-decide-plus-two-checks",
+      "category": "batch",
+      "prompt": "We need to choose how to deliver nightly reports: option A, a cron job on the app server that emails a PDF; option B, a managed scheduler that writes to a shared bucket and sends a link. We are a three-person team with no on-call rotation. Pick one. Also, separately: is it true that a PDF over 10 MB is usually blocked by corporate mail gateways? And is it true that a shared bucket link needs no authentication by default?",
+      "ideal": "batch",
+      "acceptable": [
+        "ask"
+      ],
+      "notes": "A decision plus two yes/no sanity checks on separate claims: batch (one decide + two check items) is ideal; ask with mixed question types is defensible. A lone decide or check would drop part of the request."
+    },
+    {
+      "id": "batch-score-three-docs",
+      "category": "batch",
+      "prompt": "Score each of these three README intros from 1 to 5 against the rubric 'a newcomer can tell what the project does and how to run it in under a minute'. Doc 1: 'Fastlane is a build runner. Run `fl up` in the repo root to start everything.' Doc 2: 'Welcome! This project grew out of many years of experience with distributed systems and a passion for tooling. See the wiki.' Doc 3: 'Tidepool syncs calendars between teams. Install with `brew install tidepool`, then `tidepool init` and `tidepool sync`.'",
+      "ideal": "batch",
+      "acceptable": [
+        "score",
+        "ask"
+      ],
+      "notes": "Three independent documents scored against the same rubric: batch of score items is ideal; one score call (sequential) or one ask with score questions are acceptable."
+    },
+    {
+      "id": "batch-control-single-decision",
+      "category": "batch-control",
+      "prompt": "We need to pick a primary key type for the new orders table. Option A: auto-increment bigint. Option B: UUIDv4. Option C: UUIDv7. Option D: ULID. We insert about 2k rows per second, shard by tenant later, and want index locality. Which one should we use?",
+      "ideal": "decide",
+      "acceptable": [],
+      "notes": "Control: ONE decision with four options is exactly one decide call; batch would be a misroute (guards that batch does not steal single calls)."
+    },
+    {
+      "id": "batch-control-classify-set",
+      "category": "batch-control",
+      "prompt": "Put each of these app review snippets into exactly one class: praise, complaint, question. 1) 'Love the new dashboard' 2) 'Why is sync so slow?' 3) 'Keeps logging me out, useless' 4) 'Does it work offline?' 5) 'Best update this year' 6) 'Search returns nothing for exact titles' 7) 'Can I export to CSV?' 8) 'Great support team'.",
+      "ideal": "classify",
+      "acceptable": [],
+      "notes": "Control: one item set into fixed classes is exactly one classify call; batch of classify items would be a misroute."
     }
   ]
 }

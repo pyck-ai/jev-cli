@@ -162,7 +162,8 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 
 func init() {
 	description := "Ask mixed noul/choice/score questions about one shared state in one call, or a custom set no " +
-		"other tool covers; not for a single best-option pick (jev_decide) or classes (jev_classify). " +
+		"other tool covers; not for a single best-option pick (jev_decide) or classes (jev_classify); " +
+		"for several independent decisions use jev_batch. " +
 		"Questions: " +
 		`{"k1": {"type": "noul", "instructions": "...", "criteria": {"true": "...", "false": "..."}}, ` +
 		`"k2": {"type": "choice", "instructions": "...", "criteria": {"a": "...", "b": "..."}}, ` +
@@ -181,6 +182,9 @@ func init() {
 		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
 			root.AddCommand(newCLICommand(provider, description))
 		},
+		Run: registry.Runner(func(ctx context.Context, d *registry.Deps, in AskInput) (AskOutput, error) {
+			return NewAskHandler(d.Client, d.Config, d.Budget, d.Audit).run(ctx, in)
+		}, exitCode),
 	})
 }
 

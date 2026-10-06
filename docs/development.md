@@ -65,7 +65,7 @@ OpenRouter (see `internal/openrouter/client_test.go` and
 package follows), and `cmd/jev/main_test.go` drives `jev_score` through a real MCP
 client/server session (in-memory transport) end to end, plus a
 `TestNewServer_RegistersEveryToolExactlyOnce` regression guard confirming
-all 14 tools register under distinct names. **None of this exercises a
+all 15 tools register under distinct names. **None of this exercises a
 real network call to the actual OpenRouter service** — the request/response
 shapes these tests assert on are transcribed from OpenRouter's published
 docs and the project brief's verified-live wire facts (see
@@ -140,7 +140,7 @@ next time the client restarts or reconnects the server.
 
 ### Serving only some tools
 
-`jev mcp` serves all 14 tools by default. `--tools` limits it to a
+`jev mcp` serves all 15 tools by default. `--tools` limits it to a
 comma-separated list, using the names from `jev --help` (a `jev_` prefix is
 optional):
 
@@ -245,7 +245,7 @@ block to the server entry above:
 
 ## CLI usage
 
-Every one of the 14 tools is also a plain Unix subcommand: `jev score
+Every one of the 15 tools is also a plain Unix subcommand: `jev score
 ...`, `jev verify ...`, and so on (see
 [Two run modes, one registration](architecture.md#two-run-modes-one-registration)
 for how this shares all its logic with the MCP tool of the same name —
@@ -343,6 +343,7 @@ per call):
 | `jev_gate` | `action: "auto"` | `action: "review"` | `action: "escalate"` | — |
 | `jev_doctor` | `reachable: true` | — | — | `reachable: false` |
 | `jev_ask` | every answer `ok` | — | any answer `invalid_response` | — |
+| `jev_batch` | every item exit 0 | max of item exit codes is 1 | max is 2 | max is 3 (or any item errored) |
 
 `jev_decide`'s exit-3 case is the one deliberate addition beyond a literal
 reading of its own MCP output shape: `DecideOutput.Recommendation` has a

@@ -42,6 +42,7 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/route"
 
 	_ "github.com/pyck-ai/jev-cli/internal/tools/ask"      // jev_ask
+	_ "github.com/pyck-ai/jev-cli/internal/tools/batch"    // jev_batch
 	_ "github.com/pyck-ai/jev-cli/internal/tools/check"    // jev_check
 	_ "github.com/pyck-ai/jev-cli/internal/tools/classify" // jev_classify
 	_ "github.com/pyck-ai/jev-cli/internal/tools/compare"  // jev_compare

@@ -213,6 +213,7 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 func init() {
 	description := "Choose a course of action among 2-6 options for one decision (which fix, approach, design or " +
 		"vendor is best), with a probability per option; call this instead of judging yourself. " +
+		"For several separate decisions, or a decision plus fact checks, use jev_batch. " +
 		"For which text best answers a query use jev_match; for many items into fixed classes use " +
 		"jev_classify. Fails closed: bad answers are status=invalid_response, never guessed."
 	registry.Register(registry.Tool{
@@ -229,6 +230,9 @@ func init() {
 		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
 			root.AddCommand(newCLICommand(provider, description))
 		},
+		Run: registry.Runner(func(ctx context.Context, d *registry.Deps, in DecideInput) (DecideOutput, error) {
+			return NewDecideHandler(d.Client, d.Config, d.Budget, d.Audit).run(ctx, in)
+		}, exitCode),
 	})
 }
 

@@ -162,6 +162,9 @@ func init() {
 		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
 			root.AddCommand(newCLICommand(provider, description))
 		},
+		Run: registry.Runner(func(ctx context.Context, d *registry.Deps, in CheckInput) (CheckOutput, error) {
+			return NewCheckHandler(d.Client, d.Config, d.Budget, d.Audit).run(ctx, in)
+		}, exitCode),
 	})
 }
 
