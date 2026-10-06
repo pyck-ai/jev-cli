@@ -128,6 +128,18 @@ func TestCLI_OutputJSON_MatchesOutputStruct(t *testing.T) {
 	if len(got.Results) != 1 || got.Results[0].Label != "likely" || got.Results[0].Action != ActionAuto {
 		t.Errorf("got %+v", got)
 	}
+	if got.Usage == nil || got.Usage.CostUSD == nil || *got.Usage.CostUSD != 0.00001 {
+		t.Errorf("usage.cost_usd = %+v, want 0.00001", got.Usage)
+	}
+	var raw struct {
+		Usage map[string]any `json:"usage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		t.Fatalf("raw decode: %v", err)
+	}
+	if _, ok := raw.Usage["cost_usd"]; !ok {
+		t.Errorf("raw JSON usage block has no cost_usd: %v", raw.Usage)
+	}
 }
 
 func TestCLI_ExitCodeReview(t *testing.T) {

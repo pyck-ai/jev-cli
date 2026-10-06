@@ -3,8 +3,10 @@ package openrouter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -259,5 +261,94 @@ func TestClient_Ask_MultipleMixedTypeQuestionsInOneRequest(t *testing.T) {
 	}
 	if len(resp.Answers) != 3 {
 		t.Fatalf("expected 3 answers back, got %d", len(resp.Answers))
+	}
+}
+
+func okSystemOneBody(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"answers":{},"usage":{"cost":0.5,"input_tokens":1,"output_tokens":1}}`))
+}
+
+func newFailoverClient(proxyURL, directURL string) *Client {
+	direct := &Route{Name: RouteDirect, Endpoint: directURL, APIKey: "direct-key", BaseURL: directURL, CredentialSource: "env OPENROUTER_API_KEY"}
+	return NewClientWithRoutes(
+		Route{Name: RouteProxy, Endpoint: proxyURL, APIKey: "virtual-key", BaseURL: proxyURL, CredentialSource: "env PYCKLLM_API_KEY", Why: "probe ok"},
+		direct, RetryPolicy{MaxAttempts: 3, BaseBackoffMs: 1, MaxBackoffMs: 5})
+}
+
+func TestClient_ProxyConnectionFailure_RetriesOnceDirectAndMarksDown(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close() // connection refused from now on
+
+	var directCalls atomic.Int32
+	var gotAuth atomic.Value
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		directCalls.Add(1)
+		gotAuth.Store(r.Header.Get("Authorization"))
+		okSystemOneBody(w)
+	}))
+	defer direct.Close()
+
+	c := newFailoverClient(deadURL, direct.URL)
+	resp, err := c.Ask(context.Background(), "m", map[string]Question{"q": {Type: "noul"}}, "s", 0)
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if resp.Usage == nil || resp.Usage.Cost != 0.5 {
+		t.Errorf("usage/cost lost on the direct retry: %+v", resp.Usage)
+	}
+	if gotAuth.Load() != "Bearer direct-key" {
+		t.Errorf("retry must use the direct credential, got %v", gotAuth.Load())
+	}
+	ri := c.RouteInfo()
+	if ri.Route != RouteDirect || !strings.Contains(ri.Why, "proxy marked down") || ri.CredentialSource != "env OPENROUTER_API_KEY" {
+		t.Errorf("RouteInfo after failover = %+v", ri)
+	}
+	// Proxy stays down: the next call goes straight to direct.
+	if _, err := c.Ask(context.Background(), "m", map[string]Question{"q": {Type: "noul"}}, "s", 0); err != nil {
+		t.Fatal(err)
+	}
+	if directCalls.Load() != 2 {
+		t.Errorf("direct calls = %d, want 2", directCalls.Load())
+	}
+}
+
+func TestClient_ProxyHTTPError_NotRetriedDirect(t *testing.T) {
+	var directCalls atomic.Int32
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		directCalls.Add(1)
+		okSystemOneBody(w)
+	}))
+	defer direct.Close()
+	var proxyCalls atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyCalls.Add(1)
+		w.WriteHeader(401)
+		_, _ = w.Write([]byte(`{"error":{"code":401,"message":"bad virtual key"}}`))
+	}))
+	defer proxy.Close()
+
+	c := newFailoverClient(proxy.URL, direct.URL)
+	_, err := c.Ask(context.Background(), "m", map[string]Question{"q": {Type: "noul"}}, "s", 0)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 401 {
+		t.Fatalf("want APIError 401, got %v", err)
+	}
+	if directCalls.Load() != 0 || proxyCalls.Load() != 1 {
+		t.Errorf("direct=%d proxy=%d, want 0/1", directCalls.Load(), proxyCalls.Load())
+	}
+	if c.RouteInfo().Route != RouteProxy {
+		t.Error("an HTTP error must not mark the proxy down")
+	}
+}
+
+func TestClient_ProxyFailure_NoFallback_Errors(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+	c := NewClientWithRoutes(Route{Name: RouteProxy, Endpoint: deadURL, APIKey: "k"}, nil, RetryPolicy{MaxAttempts: 3})
+	if _, err := c.Ask(context.Background(), "m", map[string]Question{"q": {Type: "noul"}}, "s", 0); err == nil {
+		t.Fatal("want error with no fallback")
 	}
 }

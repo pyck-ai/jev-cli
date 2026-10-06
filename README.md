@@ -39,10 +39,13 @@ Out of the box, jev-cli includes:
 - **[Fail-closed conventions](docs/architecture.md#conventions-shared-by-every-tool)**
   shared by every tool: never a fabricated verdict, thresholds with
   documented defaults, one batched SystemOne request instead of a loop.
+- **Prefers a local LiteLLM proxy** — with `PYCKLLM_API_KEY` set and the
+  proxy answering, calls go through it; otherwise direct to OpenRouter. See
+  [Configuration](docs/configuration.md#route-litellm-proxy-or-direct-openrouter).
 - **Reuses opencode's own OpenRouter login** — if you're already logged into
   OpenRouter through [opencode](https://opencode.ai), jev-cli picks up that
   same key automatically, with zero extra configuration; see
-  [Configuration](docs/configuration.md#api-key-required) for the exact
+  [Configuration](docs/configuration.md#api-key-direct-route) for the exact
   fallback order and when you'd want to override it.
 - **A budget-enforced, audited call path**: every call is logged to a
   JSON-lines audit file (the judged input itself is hashed, never stored

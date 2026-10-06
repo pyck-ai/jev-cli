@@ -2,12 +2,18 @@
 // small set of environment-variable overrides documented in the project
 // README.
 //
-// The OpenRouter API key is deliberately NOT part of this package: per the
-// project's security requirements it is supplied exclusively via the
-// OPENROUTER_API_KEY environment variable, is never read from the config
-// file, and must never be logged or embedded in an error message. Callers
-// read it directly from the environment (see cmd/jev/main.go) and pass it around
-// out-of-band from *Config.
+// The direct OpenRouter API key is deliberately NOT part of this package: per
+// the project's security requirements it is supplied exclusively via the
+// OPENROUTER_API_KEY environment variable (or opencode's auth store), is
+// never read from the config file, and must never be logged or embedded in
+// an error message. Callers resolve it out-of-band from *Config (see
+// internal/credentials and internal/route).
+//
+// The one exception is the optional LiteLLM-proxy virtual key
+// (proxy_api_key): a revocable, budget-scoped proxy credential, not an
+// OpenRouter key, which may be set in the config file as a fallback for the
+// PYCKLLM_API_KEY environment variable (env wins). internal/route owns the
+// route decision (proxy vs direct); this package only carries the values.
 package config
 
 import (
@@ -60,6 +66,13 @@ type Config struct {
 	Budget             Budget            `json:"budget"`
 	Retry              Retry             `json:"retry"`
 	RequestTimeoutMs   int               `json:"request_timeout_ms"`
+
+	// ProxyBaseURL and ProxyAPIKey are the config-file fallbacks for the
+	// PYCKLLM_BASE_URL / PYCKLLM_API_KEY environment variables (env wins).
+	// Empty means "not set"; a proxy route is only attempted when a key is
+	// available from one of the two. See internal/route.
+	ProxyBaseURL string `json:"proxy_base_url"`
+	ProxyAPIKey  string `json:"proxy_api_key"`
 }
 
 // Default returns the built-in configuration used when no config file is
@@ -91,6 +104,14 @@ const (
 	EnvModel            = "JEV_CLI_MODEL"
 	legacyEnvConfigPath = "JEV_MCP_CONFIG_PATH"
 	legacyEnvModel      = "JEV_MCP_MODEL"
+
+	// EnvRoute (auto|proxy|direct) and the PYCKLLM_* proxy variables were
+	// added after the rename, so they have no legacy JEV_MCP_* spelling.
+	// They are read by internal/route, declared here with the other env
+	// names.
+	EnvRoute        = "JEV_CLI_ROUTE"
+	EnvProxyAPIKey  = "PYCKLLM_API_KEY"
+	EnvProxyBaseURL = "PYCKLLM_BASE_URL"
 )
 
 // appDirName is this project's directory name under the user config dir

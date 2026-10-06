@@ -71,6 +71,9 @@ func TestCheckHandler_Handle_OK(t *testing.T) {
 			t.Errorf("Results[%d].Action = %q, want %q", i, r.Action, wantActions[i])
 		}
 	}
+	if out.Usage == nil || out.Usage.CostUSD == nil || *out.Usage.CostUSD != 0.00002 {
+		t.Errorf("usage.cost_usd = %+v, want 0.00002", out.Usage)
+	}
 	if tracker.Total() != 0.00002 {
 		t.Errorf("tracked spend = %v, want 0.00002", tracker.Total())
 	}

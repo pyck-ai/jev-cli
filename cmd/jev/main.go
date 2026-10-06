@@ -33,9 +33,9 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/audit"
 	"github.com/pyck-ai/jev-cli/internal/budget"
 	"github.com/pyck-ai/jev-cli/internal/config"
-	"github.com/pyck-ai/jev-cli/internal/credentials"
 	"github.com/pyck-ai/jev-cli/internal/openrouter"
 	"github.com/pyck-ai/jev-cli/internal/registry"
+	"github.com/pyck-ai/jev-cli/internal/route"
 
 	_ "github.com/pyck-ai/jev-cli/internal/tools/ask"      // jev_ask
 	_ "github.com/pyck-ai/jev-cli/internal/tools/check"    // jev_check
@@ -256,27 +256,21 @@ list (and its token cost) small:
 // sequence this file always had before it supported any mode but the MCP
 // server, factored out so runCLI can share it rather than duplicating it.
 //
-// The API key is resolved here (env var, falling back to opencode's own
-// stored credentials -- see internal/credentials) and passed around
-// out-of-band from *config.Config: per the project's security
-// requirements it must never be read from the jev-cli config file,
-// logged, or included in any error message, from either source. A key is
-// required at startup -- fail fast with a clear error rather than
-// deferring the failure to the first tool call.
+// The route (LiteLLM proxy or direct OpenRouter) and its credential are
+// resolved here by internal/route (one cheap proxy probe at most; direct
+// keys come from the env var or opencode's stored credentials -- see
+// internal/credentials) and passed around out-of-band from *config.Config:
+// the direct OpenRouter key must never be read from the jev-cli config
+// file, and no key may be logged or included in any error message. A
+// usable route is required at startup -- fail fast with a clear error
+// (naming both routes) rather than deferring the failure to the first
+// tool call.
 //
 // exitCode is the process exit code used on failure: 1 for the MCP
 // server's own startup (historical behavior), 3 for CLI invocations
 // (hard-error code in the CLI's exit-code scheme, reserving 0/1/2 for
 // verdict outcomes).
 func buildDeps(exitCode int) *registry.Deps {
-	cred, ok := credentials.Resolve()
-	if !ok {
-		fmt.Fprintf(os.Stderr, "jev: no OpenRouter API key available: set %s, or configure an \"openrouter\" credential of type \"api\" in opencode's auth store; refusing to start.\n", credentials.EnvVar)
-		os.Exit(exitCode)
-	}
-	apiKey := cred.Key
-	fmt.Fprintf(os.Stderr, "jev: using OpenRouter key from %s\n", cred.Source)
-
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "jev: loading config: %v\n", err)
@@ -290,7 +284,15 @@ func buildDeps(exitCode int) *registry.Deps {
 	}
 	auditLog := audit.NewLogger(auditPath)
 
-	client := openrouter.NewClient(apiKey, openrouter.RetryPolicy{
+	res, err := route.Resolve(context.Background(), route.Options{Config: cfg})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "jev: %v; refusing to start.\n", err)
+		os.Exit(exitCode)
+	}
+	fmt.Fprintf(os.Stderr, "jev: route=%s (%s), credential from %s\n",
+		res.Primary.Name, res.Primary.Why, res.Primary.CredentialSource)
+
+	client := openrouter.NewClientWithRoutes(res.Primary, res.Fallback, openrouter.RetryPolicy{
 		MaxAttempts:   cfg.Retry.MaxAttempts,
 		BaseBackoffMs: cfg.Retry.BaseBackoffMs,
 		MaxBackoffMs:  cfg.Retry.MaxBackoffMs,

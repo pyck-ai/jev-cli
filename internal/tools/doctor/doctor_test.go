@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pyck-ai/jev-cli/internal/audit"
@@ -54,8 +55,8 @@ func TestDoctorHandler_Handle_Reachable(t *testing.T) {
 	if out.Config.ResolvedModel != cfg.DefaultModel {
 		t.Errorf("Config.ResolvedModel = %q, want %q", out.Config.ResolvedModel, cfg.DefaultModel)
 	}
-	if out.Config.CredentialSource != "env" {
-		t.Errorf("Config.CredentialSource = %q, want \"env\"", out.Config.CredentialSource)
+	if out.Config.CredentialSource != "explicit" {
+		t.Errorf("Config.CredentialSource = %q, want \"explicit\"", out.Config.CredentialSource)
 	}
 	if out.Config.BudgetMaxUSDPerCall != cfg.Budget.MaxUSDPerCall {
 		t.Errorf("Config.BudgetMaxUSDPerCall = %v, want %v", out.Config.BudgetMaxUSDPerCall, cfg.Budget.MaxUSDPerCall)
@@ -142,5 +143,35 @@ func TestDoctorHandler_Handle_SessionBudgetExhaustedIsReportedNotErrored(t *test
 	}
 	if out.Error == nil {
 		t.Error("expected a non-nil Error explaining the refusal")
+	}
+}
+
+func TestDoctor_ReportsRouteAndNeverTheKey(t *testing.T) {
+	const secret = "virtual-key-SECRET-do-not-print"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(openrouter.Response{
+			Answers: map[string]json.RawMessage{"ping": json.RawMessage(`{"type":"noul","noul":0.99}`)},
+			Usage:   &openrouter.Usage{Cost: 0.000001},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := config.Default()
+	client := openrouter.NewClientWithRoutes(openrouter.Route{
+		Name: openrouter.RouteProxy, Endpoint: srv.URL, APIKey: secret, BaseURL: srv.URL,
+		CredentialSource: "env PYCKLLM_API_KEY", Why: "proxy probe ok (GET /key 200)",
+	}, nil, openrouter.RetryPolicy{MaxAttempts: 1})
+	h := NewDoctorHandler(client, cfg, budget.NewTracker(1), audit.NewLogger(filepath.Join(t.TempDir(), "a.jsonl")))
+	_, out, err := h.Handle(context.Background(), nil, DoctorInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := out.Config
+	if c.Route != "proxy" || c.BaseURL != srv.URL || c.CredentialSource != "env PYCKLLM_API_KEY" || c.RouteWhy == "" {
+		t.Errorf("config snapshot = %+v", c)
+	}
+	raw, _ := json.Marshal(out)
+	if strings.Contains(string(raw), secret) {
+		t.Errorf("doctor output contains the key: %s", raw)
 	}
 }

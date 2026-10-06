@@ -48,6 +48,9 @@ const ToolNameReview = "jev_review"
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// CostUSD is the real cost of the call in USD as reported by the API;
+	// omitted when the API returned no cost.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // ReviewInput is the jev_review tool's input schema.
@@ -173,7 +176,7 @@ func (h *ReviewHandler) run(ctx context.Context, in ReviewInput) (ReviewOutput, 
 	assessment := reviewcore.ParseAssessment(resp.Answers, truncated, in.AutoAccept, in.CompositeFloor, in.Weights)
 	out := ReviewOutput{Assessment: assessment, Model: resp.Model, LatencyMs: latencyMs}
 	if resp.Usage != nil {
-		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, CostUSD: resp.Usage.CostUSD()}
 	}
 
 	var costUSD *float64

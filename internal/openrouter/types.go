@@ -76,12 +76,24 @@
 // NO "probabilities" field -- just {"type":"noul","noul":<float>} -- unlike
 // "choice" and "score", both of which report a "confidence" and a full
 // "probabilities" map.
+//
+// # Routes (direct OpenRouter or local LiteLLM proxy)
+//
+// A Client sends to one active Route: OpenRouter directly, or the local
+// LiteLLM proxy (chosen by internal/route), which forwards
+// /openrouter/api/v1/* to OpenRouter unchanged. The request body and
+// headers are identical on both; only the URL and bearer key differ, and
+// the response (including usage.cost) is the same. See Client for the
+// connection-failure failover rule.
 package openrouter
 
 import "encoding/json"
 
 // Endpoint is the OpenRouter SystemOne API endpoint used for all Jev calls.
-const Endpoint = "https://openrouter.ai/api/v1/systemone"
+const Endpoint = BaseURL + "/systemone"
+
+// BaseURL is OpenRouter's API base; Endpoint is BaseURL + "/systemone".
+const BaseURL = "https://openrouter.ai/api/v1"
 
 // Question is the request shape for a single named SystemOne question, of
 // any of the three known types: "noul", "choice", or "score" (see this
@@ -135,6 +147,38 @@ type Usage struct {
 	Cost         float64 `json:"cost"`
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
+
+	// costSet records that the response carried a "cost" key, so a real
+	// zero cost can be told apart from an absent one.
+	costSet bool
+}
+
+// UnmarshalJSON decodes the usage block and remembers whether "cost" was
+// present in it.
+func (u *Usage) UnmarshalJSON(b []byte) error {
+	type plain Usage
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(b, &probe); err != nil {
+		return err
+	}
+	raw, ok := probe["cost"]
+	*u = Usage(p)
+	u.costSet = ok && string(raw) != "null"
+	return nil
+}
+
+// CostUSD returns a pointer to the call's cost in USD, or nil when the API
+// reported none. A non-zero Cost always counts as reported.
+func (u *Usage) CostUSD() *float64 {
+	if u == nil || (!u.costSet && u.Cost == 0) {
+		return nil
+	}
+	c := u.Cost
+	return &c
 }
 
 // ScoreAnswer is the response shape for a "score"-type answer, per

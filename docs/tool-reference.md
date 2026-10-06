@@ -29,7 +29,7 @@ scale_max]` rubric.
 | `confidence` | number | 0-1; how peaked the probability distribution is. Only meaningful when `status == "ok"`. |
 | `probabilities` | object | Full distribution over every integer level in `[scale_min, scale_max]`, keyed by stringified level (e.g. `"0"`, `"1"`, `"2"`). Only meaningful when `status == "ok"`. |
 | `status` | `"ok"` \| `"invalid_response"` | Fails closed: `"invalid_response"` if the model's answer was missing, malformed, or its probabilities didn't sum to ~1 (tolerance 0.01) — `score`/`confidence`/`probabilities` are zero-valued placeholders in that case, never a fabricated judgment. |
-| `usage` | object \| null | `{"input_tokens": N, "output_tokens": N}` if OpenRouter reported it, else `null`. |
+| `usage` | object \| null | `{"input_tokens": N, "output_tokens": N, "cost_usd": F}` if OpenRouter reported it, else `null`. `cost_usd` is the real cost of this call in USD as returned by the API (the same figure the session budget counts); the key is omitted when the API returned no cost. Every tool's `usage` block (MCP result and CLI `-o json` alike) has the same shape, so callers can sum `cost_usd` per session. Each tool makes exactly one API call per invocation, so there is no multi-call summing. |
 | `model` | string | The OpenRouter model slug that actually answered. |
 | `latency_ms` | integer | Round-trip time for the call. |
 | `budget_exceeded` | boolean | **Addition beyond the base schema** — see [Budget enforcement](configuration.md#budget-enforcement). Omitted when `false`. |
@@ -59,7 +59,7 @@ value.
   "confidence": 0.99,
   "probabilities": { "0": 0.0, "1": 0.01, "2": 0.99 },
   "status": "ok",
-  "usage": { "input_tokens": 476, "output_tokens": 70 },
+  "usage": { "input_tokens": 476, "output_tokens": 70, "cost_usd": 0.00002},
   "model": "typesafe/jev-1.13-20260917",
   "latency_ms": 312
 }
@@ -131,7 +131,7 @@ judged `supports`/`contradicts`/`says_nothing`.
     { "claim": "the deploy succeeded", "verdict": "supports", "confidence": 0.93, "probabilities": {"supports":0.93,"contradicts":0.02,"says_nothing":0.05}, "action": "auto", "status": "ok" },
     { "claim": "the deploy failed", "verdict": "contradicts", "confidence": 0.9, "probabilities": {"supports":0.03,"contradicts":0.9,"says_nothing":0.07}, "action": "auto", "status": "ok" }
   ],
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":210,"output_tokens":40}, "latency_ms": 340
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":210,"output_tokens":40, "cost_usd": 0.00002}, "latency_ms": 340
 }
 ```
 
@@ -189,7 +189,7 @@ missing/invalid injection signal conservatively recommends `"review"`
 {
   "probabilities": { "injection": 0.97, "substance": 0.6, "relevance": null },
   "recommendation": { "action": "block", "reason": "injection probability 0.970 >= block_at 0.750" },
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":90,"output_tokens":15}, "latency_ms": 210
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":90,"output_tokens":15, "cost_usd": 0.00002}, "latency_ms": 210
 }
 ```
 
@@ -238,7 +238,7 @@ jkudish's `jev_noul`, named `jev_check` in this codebase.
     {"proposition":"the sky is green","probability":0.02,"label":"unlikely","action":"auto","status":"ok"},
     {"proposition":"it might rain today","probability":0.5,"label":"uncertain","action":"review","status":"ok"}
   ],
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":60,"output_tokens":18}, "latency_ms": 190
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":60,"output_tokens":18, "cost_usd": 0.00002}, "latency_ms": 190
 }
 ```
 
@@ -292,7 +292,7 @@ candidate actually answers it at all.
 {
   "top": [ {"id":"a","probability":0.92}, {"id":"b","probability":0.08} ],
   "exists": 0.95, "exists_verdict": "answered", "status": "ok",
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":80,"output_tokens":20}, "latency_ms": 230
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":80,"output_tokens":20, "cost_usd": 0.00002}, "latency_ms": 230
 }
 ```
 
@@ -343,7 +343,7 @@ them sorted descending.
 {
   "ranked": [ {"rank":1,"id":"doc1","relevance":0.94}, {"rank":2,"id":"doc2","relevance":0.03} ],
   "status": "ok",
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":95,"output_tokens":18}, "latency_ms": 240
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":95,"output_tokens":18, "cost_usd": 0.00002}, "latency_ms": 240
 }
 ```
 
@@ -398,7 +398,7 @@ Assigns each of a list of items to exactly one of a fixed set of classes.
   "results": [
     { "id": "t1", "classification": "bug", "margin": 0.9, "confidence": 0.95, "probabilities": {"bug":0.95,"feature":0.05}, "decision": "auto", "status": "ok" }
   ],
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":70,"output_tokens":16}, "latency_ms": 200
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":70,"output_tokens":16, "cost_usd": 0.00002}, "latency_ms": 200
 }
 ```
 
@@ -464,7 +464,7 @@ brief's own `checks[]` output shape, which is exactly that matrix.
 ```json
 {
   "recommendation": { "selected": "a", "escaped": false, "confidence": 0.82, "probabilities": {"a":0.7,"b":0.15,"ask_user":0.08,"investigate":0.04,"none":0.03}, "status": "ok" },
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":120,"output_tokens":22}, "latency_ms": 260
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":120,"output_tokens":22, "cost_usd": 0.00002}, "latency_ms": 260
 }
 ```
 
@@ -512,7 +512,7 @@ per specific aspect.
 ```json
 {
   "overall": { "relation": "contradicts", "confidence": 0.91, "decision": "auto", "status": "ok" },
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":40,"output_tokens":12}, "latency_ms": 180
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":40,"output_tokens":12, "cost_usd": 0.00002}, "latency_ms": 180
 }
 ```
 
@@ -573,7 +573,7 @@ package doc comment); a field that times out is reported as
   "fields": [
     { "id": "primary_email", "value": "support@example.com", "status": "auto", "candidates_considered": 2, "candidates_truncated": false }
   ],
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":85,"output_tokens":14}, "latency_ms": 205
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":85,"output_tokens":14, "cost_usd": 0.00002}, "latency_ms": 205
 }
 ```
 
@@ -649,7 +649,7 @@ every one of the four rubrics is well-formed **and** meets `auto_accept`.
   "blast_radius": {"score":0.1,"confidence":0.9,"status":"ok"},
   "safe_to_apply": {"probability":0.93,"label":"likely","status":"ok"},
   "composite": 0.91, "action": "auto",
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":310,"output_tokens":55}, "latency_ms": 380
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":310,"output_tokens":55, "cost_usd": 0.00002}, "latency_ms": 380
 }
 ```
 
@@ -725,7 +725,7 @@ claim's verification confidence bar (one shared threshold).
     "summary": { "auto": 1, "review": 0, "invalid": 0, "contradicted": 0 },
     "results": [ {"claim":"this change is thread-safe","verdict":"supports","confidence":0.88,"action":"auto","status":"ok"} ]
   },
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":340,"output_tokens":60}, "latency_ms": 410
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":340,"output_tokens":60, "cost_usd": 0.00002}, "latency_ms": 410
 }
 ```
 
@@ -766,7 +766,7 @@ exists to diagnose, so they're reported as a normal result with
 | `reachable` | boolean | Whether the SystemOne round trip completed (2xx + parseable envelope) — independent of whether the probe's own answer was well-formed. |
 | `latency_ms` | integer | |
 | `error` | string \| null | Human-readable failure reason, or `null` if `reachable`. |
-| `config` | object | `{resolved_model, credential_source, budget_max_usd_per_call, budget_max_usd_per_session, session_spend_usd}` — `resolved_model` is `config.Config.DefaultModel` (the fallback every other tool uses absent its own override); `credential_source` matches the startup banner (see [API key](configuration.md#api-key-required)). |
+| `config` | object | `{resolved_model, route, route_why, base_url, credential_source, budget_max_usd_per_call, budget_max_usd_per_session, session_spend_usd}` — `resolved_model` is `config.Config.DefaultModel` (the fallback every other tool uses absent its own override); `route` is `proxy` or `direct`, `route_why` the probe result (or failover cause) that chose it, `base_url` the API base in use, `credential_source` where the bearer key came from, never the key (see [Route](configuration.md#route-litellm-proxy-or-direct-openrouter) and [API key](configuration.md#api-key-direct-route)); all describe the route active at call time. |
 | `usage`, `budget_exceeded` | | **Additions beyond the brief's minimal literal field list** — a real, billable call is made here, so this tool surfaces the same accounting as every other one. |
 
 ### Example
@@ -779,7 +779,10 @@ exists to diagnose, so they're reported as a normal result with
 {
   "model": "~typesafe/jev-latest", "reachable": true, "latency_ms": 240, "error": null,
   "config": {
-    "resolved_model": "~typesafe/jev-latest", "credential_source": "env",
+    "resolved_model": "~typesafe/jev-latest", "route": "proxy",
+    "route_why": "proxy probe ok (GET /key 200)",
+    "base_url": "http://127.0.0.1:53986/openrouter/api/v1",
+    "credential_source": "env PYCKLLM_API_KEY",
     "budget_max_usd_per_call": 0.01, "budget_max_usd_per_session": 1.0, "session_spend_usd": 0.00312
   }
 }
@@ -830,7 +833,7 @@ shape almost 1:1.
 ```json
 {
   "answers": { "is_overdue": { "type": "noul", "status": "ok", "noul": 0.1 } },
-  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":30,"output_tokens":8}, "latency_ms": 160
+  "model": "typesafe/jev-1.13-20260917", "usage": {"input_tokens":30,"output_tokens":8, "cost_usd": 0.00002}, "latency_ms": 160
 }
 ```
 

@@ -4,7 +4,10 @@
 // caller-overridden) model, reporting reachability and latency, plus a
 // snapshot of the currently active configuration (resolved model,
 // credential source, budget caps, and current session spend) so this
-// doubles as a configuration-sanity tool, not just a network ping.
+// doubles as a configuration-sanity tool, not just a network ping. The
+// snapshot includes the active route (LiteLLM proxy or direct OpenRouter,
+// see internal/route), why it was chosen, the base URL and the credential
+// source -- never a key.
 //
 // This package is a self-registering plugin (see internal/registry's
 // package doc comment for the overall mechanism).
@@ -54,7 +57,6 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/audit"
 	"github.com/pyck-ai/jev-cli/internal/budget"
 	"github.com/pyck-ai/jev-cli/internal/config"
-	"github.com/pyck-ai/jev-cli/internal/credentials"
 	"github.com/pyck-ai/jev-cli/internal/openrouter"
 	"github.com/pyck-ai/jev-cli/internal/registry"
 )
@@ -66,6 +68,9 @@ const ToolNameDoctor = "jev_doctor"
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// CostUSD is the real cost of the call in USD as reported by the API;
+	// omitted when the API returned no cost.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // DoctorInput is the jev_doctor tool's input schema. Every field is
@@ -82,7 +87,17 @@ type ConfigSnapshot struct {
 	// config.Config.ModelForTool). This is deliberately the single
 	// headline "what model is this server using" figure, rather than the
 	// full tool_model_overrides map, which this tool does not surface.
-	ResolvedModel          string  `json:"resolved_model"`
+	ResolvedModel string `json:"resolved_model"`
+	// Route is "proxy" (local LiteLLM proxy) or "direct" (OpenRouter);
+	// RouteWhy is the probe result that chose it (or the failover cause);
+	// BaseURL is the API base calls go to. CredentialSource names where
+	// the bearer credential came from (env PYCKLLM_API_KEY, config
+	// proxy_api_key, env OPENROUTER_API_KEY, opencode auth store at
+	// <path>), never the key itself. All four describe the route active at
+	// the time of the call, so a mid-session proxy failover shows up here.
+	Route                  string  `json:"route"`
+	RouteWhy               string  `json:"route_why"`
+	BaseURL                string  `json:"base_url"`
 	CredentialSource       string  `json:"credential_source"`
 	BudgetMaxUSDPerCall    float64 `json:"budget_max_usd_per_call"`
 	BudgetMaxUSDPerSession float64 `json:"budget_max_usd_per_session"`
@@ -125,7 +140,7 @@ func NewDoctorHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 func init() {
 	description := "Check connectivity to OpenRouter's SystemOne API with a minimal, cheap probe call, " +
 		"and report the active configuration (resolved model, credential source, budget caps, session " +
-		"spend). Run this first when another tool call fails, to rule out a connectivity/config " +
+		"spend) plus which route is active (proxy|direct), why, the base URL and credential source (never a key). Run this first when another tool call fails, to rule out a connectivity/config " +
 		"problem before assuming the tool itself is broken. Never fails as a Go error: an unreachable " +
 		"endpoint is reported as reachable=false with a human-readable error, since that IS the " +
 		"useful result. Example (every field optional): {} or {\"probe_model\": \"some/other-model\"}. " +
@@ -168,13 +183,13 @@ func (h *DoctorHandler) run(ctx context.Context, in DoctorInput) (DoctorOutput, 
 		model = h.model
 	}
 
-	credSource := "unavailable (no OPENROUTER_API_KEY and no usable opencode auth store entry)"
-	if cred, ok := credentials.Resolve(); ok {
-		credSource = cred.Source
-	}
+	ri := h.client.RouteInfo()
 	snapshot := ConfigSnapshot{
 		ResolvedModel:          h.cfg.DefaultModel,
-		CredentialSource:       credSource,
+		Route:                  ri.Route,
+		RouteWhy:               ri.Why,
+		BaseURL:                ri.BaseURL,
+		CredentialSource:       ri.CredentialSource,
 		BudgetMaxUSDPerCall:    h.cfg.Budget.MaxUSDPerCall,
 		BudgetMaxUSDPerSession: h.cfg.Budget.MaxUSDPerSession,
 		SessionSpendUSD:        h.budget.Total(),
@@ -213,7 +228,7 @@ func (h *DoctorHandler) run(ctx context.Context, in DoctorInput) (DoctorOutput, 
 
 	out := DoctorOutput{Model: model, Reachable: true, LatencyMs: latencyMs, Error: nil, Config: snapshot}
 	if resp.Usage != nil {
-		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, CostUSD: resp.Usage.CostUSD()}
 	}
 
 	var costUSD *float64

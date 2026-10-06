@@ -8,8 +8,9 @@ summarizes and links here rather than restating.
 
 ## Documents
 
-**[Configuration](configuration.md)** — how jev-cli gets its OpenRouter API
-key (env var, then opencode's own credential store), the optional config
+**[Configuration](configuration.md)** — how jev-cli picks its route
+(LiteLLM proxy or direct OpenRouter) and API key (env var, then opencode's own
+credential store), the optional config
 file and its environment-variable overrides, the JSON-lines audit log every
 call writes, and how the per-call/session budget caps are enforced.
 

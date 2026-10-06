@@ -92,6 +92,9 @@ const (
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// CostUSD is the real cost of the call in USD as reported by the API;
+	// omitted when the API returned no cost.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // EvidenceItem is one item of a structured (as opposed to single-blob)
@@ -249,7 +252,7 @@ func (h *VerifyHandler) run(ctx context.Context, in VerifyInput) (VerifyOutput, 
 
 	out := VerifyOutput{Model: resp.Model, LatencyMs: latencyMs}
 	if resp.Usage != nil {
-		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, CostUSD: resp.Usage.CostUSD()}
 	}
 
 	invalidCount := 0

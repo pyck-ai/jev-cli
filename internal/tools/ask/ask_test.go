@@ -57,6 +57,9 @@ func TestAskHandler_Handle_OK_AllThreeTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if out.Usage == nil || out.Usage.CostUSD == nil || *out.Usage.CostUSD != 0.00002 {
+		t.Errorf("usage.cost_usd = %+v, want 0.00002", out.Usage)
+	}
 	if len(out.Answers) != 3 {
 		t.Fatalf("len(Answers) = %d, want 3", len(out.Answers))
 	}

@@ -64,6 +64,9 @@ func TestVerifyHandler_Handle_OK_StringEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if out.Usage == nil || out.Usage.CostUSD == nil || *out.Usage.CostUSD != 0.00002 {
+		t.Errorf("usage.cost_usd = %+v, want 0.00002", out.Usage)
+	}
 	if len(out.Results) != 2 {
 		t.Fatalf("len(Results) = %d, want 2", len(out.Results))
 	}

@@ -100,6 +100,9 @@ const (
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// CostUSD is the real cost of the call in USD as reported by the API;
+	// omitted when the API returned no cost.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // CompareInput is the jev_compare tool's input schema.
@@ -270,7 +273,7 @@ func (h *CompareHandler) run(ctx context.Context, in CompareInput) (CompareOutpu
 
 	out := CompareOutput{Model: resp.Model, LatencyMs: latencyMs, Truncated: truncated}
 	if resp.Usage != nil {
-		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+		out.Usage = &Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, CostUSD: resp.Usage.CostUSD()}
 	}
 
 	invalidCount := 0

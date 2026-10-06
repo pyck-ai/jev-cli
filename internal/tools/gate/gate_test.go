@@ -72,6 +72,9 @@ func TestGateHandler_Handle_AllAutoIsAuto(t *testing.T) {
 	if out.Action != ActionAuto {
 		t.Errorf("Action = %q, want auto (reasons: %v)", out.Action, out.ReasonCodes)
 	}
+	if out.Usage == nil || out.Usage.CostUSD == nil || *out.Usage.CostUSD != 0.00006 {
+		t.Errorf("usage.cost_usd = %+v, want 0.00006", out.Usage)
+	}
 	if out.Verification.Summary.Auto != 1 || out.Verification.Summary.Contradicted != 0 {
 		t.Errorf("Summary = %+v", out.Verification.Summary)
 	}

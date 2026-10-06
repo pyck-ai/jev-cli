@@ -152,7 +152,8 @@ go.mod / go.sum
 cmd/jev/main.go                // the jev binary: run-mode switch, blank-imports every tool package, API key resolution + fail-fast
 cmd/jev/main_test.go           // end-to-end MCP wire-protocol test + MCP and CLI roster guards
 internal/config/                // config file loading + env overrides
-internal/credentials/           // OpenRouter API key resolution: env var, then opencode's auth store
+internal/credentials/           // direct OpenRouter API key resolution: env var, then opencode's auth store
+internal/route/                 // route choice: LiteLLM proxy (probe) preferred, else direct; see configuration.md
 internal/openrouter/            // HTTP client, retry/backoff, SystemOne request/response shapes, Client.Ask
 internal/audit/                 // JSONL audit writer
 internal/budget/                // session spend tracking

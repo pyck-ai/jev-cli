@@ -7,9 +7,40 @@ writes, and how per-call/session budget caps are enforced. See
 [Architecture](architecture.md) for how this plumbing is wired into every
 tool.
 
-## API key (required)
+## Route: LiteLLM proxy or direct OpenRouter
 
-jev-cli resolves the OpenRouter API key it uses at startup, in this order:
+jev-cli sends SystemOne calls either through a local LiteLLM proxy (which
+forwards `{base}/openrouter/api/v1/*` to `https://openrouter.ai/api/v1/*`
+unchanged and swaps in its own OpenRouter key) or straight to OpenRouter.
+The request body and headers are identical on both; only the URL and bearer
+credential differ. `usage.cost` comes back unchanged, so budget caps work on
+both. Implemented in `internal/route`; the proxy is preferred when present.
+
+| Step | Rule |
+|---|---|
+| Candidate | `PYCKLLM_API_KEY` (LiteLLM virtual key) set, else config `proxy_api_key`. None: direct, no probe. |
+| Base | `PYCKLLM_BASE_URL`, else config `proxy_base_url`, else `http://127.0.0.1:53986`. A trailing `/` and `/v1` are stripped. |
+| Probe | One per process: `GET {base}/openrouter/api/v1/key` with the virtual key, 1.5 s timeout. `200` selects the proxy; anything else (refused, timeout, 401/403/404, ...) selects direct. |
+| Direct | The OpenRouter key resolution below, unchanged. With no direct key either, startup fails with an error naming both routes. |
+| Mid-session | Connection-level proxy failure (refused/timeout, no response) retries that call once direct, if a direct key exists, and marks the proxy down for the rest of the process. HTTP error responses from the proxy are real answers and are not retried direct. |
+
+| Variable | Effect |
+|---|---|
+| `JEV_CLI_ROUTE` | `auto` (default), `proxy` (fail if the proxy is unusable, no fallback) or `direct` (never probe or use the proxy). No legacy `JEV_MCP_*` spelling. |
+| `PYCKLLM_API_KEY` | LiteLLM virtual key. Env wins over config `proxy_api_key`. |
+| `PYCKLLM_BASE_URL` | Proxy base root. Env wins over config `proxy_base_url`. |
+
+`jev doctor` / `jev_doctor` report `route`, `route_why` (probe result),
+`base_url` and `credential_source` (`env PYCKLLM_API_KEY`, `config
+proxy_api_key`, `env OPENROUTER_API_KEY`, `opencode auth store at <path>`),
+never a key. Startup logs `jev: route=... credential from ...` on stderr.
+The virtual key is a revocable proxy credential, so it is the one key
+allowed in the config file; the direct OpenRouter key never is.
+
+## API key (direct route)
+
+On the direct route, jev-cli resolves the OpenRouter API key it uses at
+startup, in this order:
 
 1. **`OPENROUTER_API_KEY` environment variable**, if set and non-empty:
 
@@ -35,7 +66,7 @@ jev-cli resolves the OpenRouter API key it uses at startup, in this order:
    permission denied) is treated the same as "no key here" and simply falls
    through, never a crash.
 
-If neither source yields a key, the server fails fast at startup with a
+If neither source yields a key and no proxy is usable, the server fails fast at startup with a
 clear message on stderr (see [Running standalone](development.md#running-standalone) for
 what that looks like) — it never silently starts with no auth. Regardless
 of which source is used, the resolved key is never read from jev-cli's own
@@ -81,6 +112,7 @@ as-is. If present, any field you omit keeps its default value.
 | `retry.max_attempts` | Total HTTP attempts per tool call (initial attempt + retries). |
 | `retry.base_backoff_ms` / `retry.max_backoff_ms` | Jittered exponential backoff bounds between retries. |
 | `request_timeout_ms` | Total deadline for a tool call, covering **all** retry attempts combined, not per-attempt. |
+| `proxy_api_key` / `proxy_base_url` | Optional fallbacks for `PYCKLLM_API_KEY` / `PYCKLLM_BASE_URL` (env wins). Default none / `http://127.0.0.1:53986`. |
 
 ### Environment overrides
 
@@ -88,6 +120,7 @@ as-is. If present, any field you omit keeps its default value.
 |---|---|
 | `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool — see the doc comment on `config.applyEnvOverrides` in `internal/config/config.go` for the precedence rationale. |
 | `JEV_CLI_CONFIG_PATH` | Overrides the config file path. |
+| `JEV_CLI_ROUTE`, `PYCKLLM_API_KEY`, `PYCKLLM_BASE_URL` | Route selection; see [Route](#route-litellm-proxy-or-direct-openrouter). |
 
 ## Audit log
 

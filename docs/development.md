@@ -71,7 +71,9 @@ shapes these tests assert on are transcribed from OpenRouter's published
 docs and the project brief's verified-live wire facts (see
 `internal/openrouter/types.go`), not confirmed against a live response.
 Re-verify against a real `OPENROUTER_API_KEY` before depending on this in
-anything important. `internal/credentials`' tests point `XDG_DATA_HOME` at a
+anything important. (Route selection and proxy failover are tested the same
+way, against httptest servers: `internal/route`, `internal/openrouter`. The
+SystemOne call through the LiteLLM proxy was verified live on 2026-10-04.) `internal/credentials`' tests point `XDG_DATA_HOME` at a
 temp dir (via `t.Setenv`) for every case, so they never read or touch a
 real `~/.local/share/opencode/auth.json`.
 
@@ -85,17 +87,19 @@ This section is about running it directly for a quick sanity check:
 OPENROUTER_API_KEY=sk-or-... ./jev mcp
 ```
 
-You should see two banner lines on stderr — which API key source was used,
+You should see two banner lines on stderr — which route and credential
+source were used (see [Route](configuration.md#route-litellm-proxy-or-direct-openrouter)),
 then the usual startup summary:
 
 ```
-jev: using OpenRouter key from env
+jev: route=direct (PYCKLLM_API_KEY not set (no proxy candidate)), credential from env OPENROUTER_API_KEY
 jev: starting (tools=14, default_model=~typesafe/jev-latest, config=..., audit_log=...)
 ```
 
-(The first line reads `jev: using OpenRouter key from opencode auth
-store at <path>` instead when falling back to opencode's stored credentials
-— see [API key](configuration.md#api-key-required) — and never prints the key value either
+(The first line reads `route=proxy (...), credential from env PYCKLLM_API_KEY`
+when the LiteLLM proxy is used, and names `opencode auth store at <path>` as
+the source when falling back to opencode's stored credentials
+— see [API key](configuration.md#api-key-direct-route) — and never prints the key value either
 way. `tools=14` counts every self-registered tool, i.e. it moves in lockstep
 with the blank imports in `cmd/jev/main.go` — see
 [Plugin architecture](architecture.md#plugin-architecture); it does not name a single
@@ -168,7 +172,7 @@ Add to `opencode.json` (see [opencode's MCP docs](https://opencode.ai/docs/mcp-s
 ```
 
 Since jev-cli is being registered from *inside* opencode here, the
-credential fallback described under [API key](configuration.md#api-key-required) usually
+credential fallback described under [API key](configuration.md#api-key-direct-route) usually
 means that's all you need: if you've already logged into OpenRouter through
 opencode (`~/.local/share/opencode/auth.json` has a `"type": "api"`
 `openrouter` entry), jev-cli will pick that up automatically with no
@@ -191,6 +195,12 @@ use a *different* OpenRouter key than the rest of opencode:
 Prefer setting `OPENROUTER_API_KEY` in your shell/secret manager over
 hardcoding it in `opencode.json` if you use the explicit form and that file
 is checked into version control.
+
+opencode spawns local MCP servers with its own process environment merged
+under the `environment` block (`packages/opencode/src/mcp/index.ts`,
+`{ ...process.env, ...mcp.environment }`), so `PYCKLLM_API_KEY` (and
+`PYCKLLM_BASE_URL`, `JEV_CLI_ROUTE`) exported to opencode reach jev with no
+`environment` entry; see [Route](configuration.md#route-litellm-proxy-or-direct-openrouter).
 
 ### Claude Code
 
@@ -217,7 +227,7 @@ config:
 
 Claude Code has no OpenRouter-credential store of its own to fall back to
 the way opencode does — set `OPENROUTER_API_KEY` in your shell/secret
-manager (see [API key](configuration.md#api-key-required)), or add an `"env"`
+manager (see [API key](configuration.md#api-key-direct-route)), or add an `"env"`
 block to the server entry above:
 
 ```json
