@@ -1,7 +1,7 @@
 // Package gate implements the jev_gate MCP tool: jev_review's four-rubric
 // code-review assessment PLUS claim verification against caller-supplied
 // evidence, combined into a single stricter auto/review/escalate gate
-// decision, using TypeSafe's Jev judgment model via OpenRouter's
+// decision, using the configured SystemOne decision model via OpenRouter's
 // SystemOne API. All of it -- the review rubrics and every claim
 // verification -- happens in ONE client.Ask call.
 //

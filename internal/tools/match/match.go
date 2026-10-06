@@ -1,7 +1,7 @@
 // Package match implements the jev_match MCP tool: given a query and a
 // list of candidates, picks the single best-matching candidate (and
 // reports whether any candidate actually answers the query at all), using
-// TypeSafe's Jev judgment model's "choice" and "noul" question types, via
+// the configured SystemOne decision model's "choice" and "noul" question types, via
 // OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's

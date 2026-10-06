@@ -1,6 +1,6 @@
 // Package verify implements the jev_verify MCP tool: batched
 // support/contradict/says-nothing verification of a list of claims against
-// supplied evidence, using TypeSafe's Jev judgment model's "choice"
+// supplied evidence, using the configured SystemOne decision model's "choice"
 // question type, via OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's

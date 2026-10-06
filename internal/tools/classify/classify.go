@@ -1,6 +1,6 @@
 // Package classify implements the jev_classify MCP tool: assigns each of a
 // list of items to exactly one of a fixed set of classes, using
-// TypeSafe's Jev judgment model's "choice" question type, via
+// the configured SystemOne decision model's "choice" question type, via
 // OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's
@@ -155,7 +155,7 @@ func NewClassifyHandler(client *openrouter.Client, cfg config.Config, tracker *b
 
 func init() {
 	description := "Classify each of a list of items into exactly one of a fixed set of classes, using " +
-		"TypeSafe's Jev judgment model. Use this for bulk categorization: many items, each " +
+		"the configured SystemOne decision model. Use this for bulk categorization: many items, each " +
 		"independently assigned one class -- use jev_decide instead when picking the single best of " +
 		"2-6 options for one specific decision, not categorizing a batch of items. Fails closed per " +
 		"item: a malformed or missing answer is reported as status=\"invalid_response\" with " +

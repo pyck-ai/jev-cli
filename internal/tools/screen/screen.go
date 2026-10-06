@@ -1,7 +1,7 @@
 // Package screen implements the jev_screen MCP tool: an ADVISORY-ONLY
 // safety/quality screen for a piece of text (e.g. content pulled from an
 // untrusted external source before an agent processes it), using
-// TypeSafe's Jev judgment model's "noul" question type, via OpenRouter's
+// the configured SystemOne decision model's "noul" question type, via OpenRouter's
 // SystemOne API.
 //
 // jev_screen never blocks anything itself -- it has no side effects beyond

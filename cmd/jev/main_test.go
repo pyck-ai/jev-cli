@@ -234,8 +234,8 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 
 // noDepsProvider fails the test if a tool actually tries to build its
 // dependencies: none of the tests below run a tool.
-func noDepsProvider(t *testing.T) registry.DepsProvider {
-	return func() *registry.Deps {
+func noDepsProvider(t *testing.T) func(string) *registry.Deps {
+	return func(string) *registry.Deps {
 		t.Fatal("deps provider must not be invoked when building the command tree, printing help, or running mcp")
 		return nil
 	}
@@ -246,7 +246,7 @@ func noDepsProvider(t *testing.T) registry.DepsProvider {
 // one subcommand per tool plus `mcp`. It's a tripwire: update want when a
 // tool is added or removed.
 func TestNewRootCmd_Subcommands(t *testing.T) {
-	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) {})
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
 
 	want := []string{
 		"ask", "check", "classify", "compare", "decide",
@@ -271,7 +271,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 // into exit 3) instead of silently starting the MCP server or printing help.
 func TestRootCmd_NoArgsIsNotImplementedTUI(t *testing.T) {
 	mcpStarted := false
-	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) { mcpStarted = true })
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) { mcpStarted = true })
 	root.SetArgs([]string{})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -291,7 +291,7 @@ func TestRootCmd_NoArgsIsNotImplementedTUI(t *testing.T) {
 
 func TestRootCmd_McpStartsServer(t *testing.T) {
 	mcpStarted := false
-	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) { mcpStarted = true })
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) { mcpStarted = true })
 	root.SetArgs([]string{"mcp"})
 
 	if err := root.Execute(); err != nil {
@@ -303,7 +303,7 @@ func TestRootCmd_McpStartsServer(t *testing.T) {
 }
 
 func TestRootCmd_HelpDescribesModes(t *testing.T) {
-	root := newRootCmd(noDepsProvider(t), func([]registry.Tool) {})
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
 	root.SetArgs([]string{"--help"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -351,7 +351,7 @@ func TestSelectTools(t *testing.T) {
 
 func TestRootCmd_McpToolsFlag(t *testing.T) {
 	var served []registry.Tool
-	root := newRootCmd(noDepsProvider(t), func(tools []registry.Tool) { served = tools })
+	root := newRootCmd(noDepsProvider(t), func(tools []registry.Tool, _ string) { served = tools })
 	root.SetArgs([]string{"mcp", "--tools", "verify,check"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -361,7 +361,7 @@ func TestRootCmd_McpToolsFlag(t *testing.T) {
 	}
 
 	served = nil
-	root = newRootCmd(noDepsProvider(t), func(tools []registry.Tool) { served = tools })
+	root = newRootCmd(noDepsProvider(t), func(tools []registry.Tool, _ string) { served = tools })
 	root.SetArgs([]string{"mcp", "--tools", "nope"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -415,4 +415,80 @@ func TestNewServer_OnlySelectedTools(t *testing.T) {
 	if !slices.Equal(got, []string{"jev_check", "jev_verify"}) {
 		t.Errorf("tools/list = %v, want [jev_check jev_verify]", got)
 	}
+}
+
+// TestRootCmd_ModelFlagIsPersistentAndReachesDeps: --model is registered on
+// the root as a persistent flag, so every tool subcommand and `mcp` accept
+// it; its value reaches the lazy deps builder (where buildDeps forces it
+// onto the loaded config) and the MCP server entry point, and is "" when
+// unset.
+func TestRootCmd_ModelFlagIsPersistentAndReachesDeps(t *testing.T) {
+	root := newRootCmd(noDepsProvider(t), func([]registry.Tool, string) {})
+	if f := root.PersistentFlags().Lookup("model"); f == nil {
+		t.Fatal("root has no persistent --model flag")
+	}
+	for _, c := range root.Commands() {
+		if c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		if c.InheritedFlags().Lookup("model") == nil {
+			t.Errorf("subcommand %q does not inherit --model", c.Name())
+		}
+	}
+
+	t.Run("mcp receives the flag value", func(t *testing.T) {
+		var got = "unset"
+		root := newRootCmd(noDepsProvider(t), func(_ []registry.Tool, model string) { got = model })
+		root.SetArgs([]string{"mcp", "--model", "liquid/d1"})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if got != "liquid/d1" {
+			t.Errorf("serveMCP model = %q, want %q", got, "liquid/d1")
+		}
+	})
+
+	t.Run("tool subcommand: deps builder gets the value and the config is forced", func(t *testing.T) {
+		type stop struct{}
+		var got = "unset"
+		var cfg config.Config
+		root := newRootCmd(func(model string) *registry.Deps {
+			got = model
+			cfg = config.Default()
+			cfg.ToolModelOverrides = map[string]string{"jev_score": "typesafe/jev-1.13"}
+			cfg.ForceModel(model)
+			panic(stop{}) // deps are built lazily, at tool run time; end the run here
+		}, func([]registry.Tool, string) {})
+		root.SetArgs([]string{"score", "--model", "cloudflare/clef", "--state", "x", "--scale-min", "0", "--scale-max", "2", "--instructions", "i"})
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					if _, ok := r.(stop); !ok {
+						panic(r)
+					}
+				}
+			}()
+			_ = root.Execute()
+		}()
+		if got != "cloudflare/clef" {
+			t.Fatalf("deps builder model = %q, want %q (score may have failed before building deps)", got, "cloudflare/clef")
+		}
+		if m := cfg.ModelForTool("jev_score"); m != "cloudflare/clef" {
+			t.Errorf("ModelForTool(jev_score) = %q, want the --model value to beat tool_model_overrides", m)
+		}
+	})
+
+	t.Run("unset flag is empty", func(t *testing.T) {
+		var got = "unset"
+		root := newRootCmd(noDepsProvider(t), func(_ []registry.Tool, model string) { got = model })
+		root.SetArgs([]string{"mcp"})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if got != "" {
+			t.Errorf("serveMCP model = %q, want empty", got)
+		}
+	})
 }

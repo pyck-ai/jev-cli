@@ -353,6 +353,12 @@ otherwise leave `Escaped` at its Go zero value (`false`) and silently
 report exit 0 for a call that didn't actually produce a usable
 recommendation.
 
+### Global flags and `jev models`
+
+| Command / flag | Effect |
+|---|---|
+| `--model <slug>` | Persistent root flag: forces this SystemOne decision model for every tool, over `tool_model_overrides`, `JEV_CLI_MODEL` and `default_model`. |
+
 ### Worked examples
 
 One flag-based and one `--json` example per tool (all verified against a

@@ -1,5 +1,5 @@
-// Command jev exposes TypeSafe's "Jev" judgment model, via OpenRouter's
-// SystemOne API, as a set of tools: as an MCP (Model Context Protocol)
+// Command jev exposes OpenRouter's SystemOne decision models (default:
+// TypeSafe's "Jev"), as a set of tools: as an MCP (Model Context Protocol)
 // server over stdio, and as CLI subcommands (`jev score ...`). See
 // README.md for setup, configuration, and the tool reference.
 //
@@ -84,7 +84,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "jev: warning: could not set JSONSCHEMAGODEBUG: %v\n", err)
 	}
 
-	root := newRootCmd(func() *registry.Deps { return buildDeps(3) }, runMCPServer)
+	root := newRootCmd(func(model string) *registry.Deps { return buildDeps(3, model) }, runMCPServer)
 
 	// Exit 3 on any Execute error (unknown command, bad flags, the
 	// not-yet-implemented TUI): the CLI exit-code scheme reserves 3 for
@@ -96,22 +96,27 @@ func main() {
 
 // runMCPServer is the `jev mcp` mode: build the shared dependencies,
 // register the selected tools as MCP tools, and serve MCP over stdio until
-// the client disconnects or an error occurs.
-func runMCPServer(tools []registry.Tool) {
-	deps := buildDeps(1)
+// the client disconnects or an error occurs. model is the --model flag value
+// ("" when unset); see buildDeps.
+func runMCPServer(tools []registry.Tool, model string) {
+	deps := buildDeps(1, model)
 
 	server := newServer(deps, tools)
 
-	// The log line reports the tool count and the fallback default_model
-	// (each tool may resolve a different model via
-	// cfg.ToolModelOverrides), plus the tool names when --tools limited
-	// the set.
+	// The log line reports the tool count and the effective default_model
+	// (without --model, each tool may resolve a different model via
+	// cfg.ToolModelOverrides; with it, every tool uses that model), plus
+	// the tool names when --tools limited the set.
 	toolsDesc := fmt.Sprint(len(tools))
 	if len(tools) < len(registry.All()) {
 		toolsDesc += " [" + strings.Join(toolCLINames(tools), ",") + "]"
 	}
+	modelDesc := deps.Config.DefaultModel
+	if model != "" {
+		modelDesc += " (from --model)"
+	}
 	fmt.Fprintf(os.Stderr, "jev: starting (tools=%s, default_model=%s, config=%s, audit_log=%s)\n",
-		toolsDesc, deps.Config.DefaultModel, mustConfigPath(), mustAuditPath())
+		toolsDesc, modelDesc, mustConfigPath(), mustAuditPath())
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "jev: server exited with error: %v\n", err)
@@ -176,17 +181,24 @@ func toolCLINames(tools []registry.Tool) []string {
 // --tools), and one subcommand per registered tool, added by that tool's
 // RegisterCLI hook.
 //
-// provider is LAZY: it builds the credential/config/audit plumbing (and
-// exits the process if that fails) only when a tool subcommand actually
-// runs, never while parsing flags or printing help, so `jev --help` and
-// `jev score --help` work with no credentials configured. serveMCP is a
-// parameter so tests can check the `mcp` wiring without starting a
+// The root owns the persistent --model flag (valid on every subcommand,
+// including mcp). newDeps is LAZY: it builds the credential/config/audit
+// plumbing (and exits the process if that fails) only when a tool
+// subcommand actually runs, never while parsing flags or printing help, so
+// `jev --help` and `jev score --help` work with no credentials configured.
+// It receives the --model value ("" when unset) so it can force that model
+// onto the loaded config (see buildDeps). serveMCP gets the same value, and
+// is a parameter so tests can check the `mcp` wiring without starting a
 // server.
-func newRootCmd(provider registry.DepsProvider, serveMCP func([]registry.Tool)) *cobra.Command {
+func newRootCmd(newDeps func(model string) *registry.Deps, serveMCP func(tools []registry.Tool, model string)) *cobra.Command {
+	var modelFlag string
+	provider := registry.DepsProvider(func() *registry.Deps {
+		return newDeps(modelFlag)
+	})
 	root := &cobra.Command{
 		Use:   "jev",
-		Short: "TypeSafe's Jev judgment model, as a CLI and an MCP server",
-		Long: `jev exposes TypeSafe's Jev judgment model (via OpenRouter's SystemOne API)
+		Short: "OpenRouter SystemOne decision models (default: TypeSafe's Jev), as a CLI and an MCP server",
+		Long: `jev exposes OpenRouter's SystemOne decision models (default: TypeSafe's Jev)
 as a set of judgment tools, in three modes:
 
   jev              Interactive TUI. NOT IMPLEMENTED YET: currently prints an
@@ -203,6 +215,8 @@ as a set of judgment tools, in three modes:
 			return errTUINotImplemented
 		},
 	}
+	root.PersistentFlags().StringVar(&modelFlag, "model", "",
+		"SystemOne decision model slug for every tool (e.g. liquid/d1, cloudflare/clef); overrides JEV_CLI_MODEL and the config file. List models with `jev models`.")
 	root.AddGroup(
 		&cobra.Group{ID: groupTools, Title: "Tool commands:"},
 		&cobra.Group{ID: groupServer, Title: "Server:"},
@@ -227,7 +241,7 @@ list (and its token cost) small:
 			if err != nil {
 				return err
 			}
-			serveMCP(tools)
+			serveMCP(tools, modelFlag)
 			return nil
 		},
 	}
@@ -270,12 +284,17 @@ list (and its token cost) small:
 // server's own startup (historical behavior), 3 for CLI invocations
 // (hard-error code in the CLI's exit-code scheme, reserving 0/1/2 for
 // verdict outcomes).
-func buildDeps(exitCode int) *registry.Deps {
+//
+// model is the --model flag value ("" when unset). It is applied after
+// config.Load(), so it beats tool_model_overrides, JEV_CLI_MODEL and
+// default_model (see config.Config.ForceModel).
+func buildDeps(exitCode int, model string) *registry.Deps {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "jev: loading config: %v\n", err)
 		os.Exit(exitCode)
 	}
+	cfg.ForceModel(model)
 
 	auditPath, err := audit.DefaultPath()
 	if err != nil {

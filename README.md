@@ -1,7 +1,8 @@
 # jev-cli
 
-jev-cli exposes TypeSafe's **Jev** judgment model, via
-[OpenRouter](https://openrouter.ai)'s SystemOne API, as 14 tools -- as an
+jev-cli exposes [OpenRouter](https://openrouter.ai)'s SystemOne decision
+models (default: TypeSafe's **Jev**, `~typesafe/jev-latest`; pick another
+with `--model`) as 14 tools -- as an
 MCP (Model Context Protocol) server for [opencode](https://opencode.ai) or
 any other MCP-compatible client, **and** as a plain Unix CLI (`jev score
 ...`, `jev verify ...`, ...) for everything else. Same 14 tools, same
@@ -10,7 +11,7 @@ underlying logic, either way -- see
 
 ## What is jev-cli?
 
-Jev doesn't generate free text. It answers typed, closed-form questions and
+A SystemOne decision model doesn't generate free text. It answers typed, closed-form questions and
 returns calibrated probability distributions over every possible answer in
 ~150-500ms. Every tool here is a different framing of the same three
 SystemOne primitives -- `noul` (probability a statement holds), `choice`
@@ -54,8 +55,8 @@ Out of the box, jev-cli includes:
 
 ## Getting started
 
-Needs Go 1.25+ and an OpenRouter API key with access to the `typesafe/jev-*`
-model family — see [Configuration](docs/configuration.md) for how the key is
+Needs Go 1.25+ and an OpenRouter API key with access to the SystemOne
+decision model you use (default `~typesafe/jev-latest`) — see [Configuration](docs/configuration.md) for how the key is
 resolved (it reuses opencode's stored OpenRouter key if there is one).
 
 Install the `jev` binary from the `main` branch into `$(go env GOPATH)/bin`
@@ -97,6 +98,7 @@ Use it as a CLI:
 ```sh
 jev score --state "2+2=4" --scale-min 0 --scale-max 1 --instructions "0=false, 1=true"
 jev --help
+jev --model liquid/d1 score ...    # force one model for every tool
 ```
 
 Or as an MCP server: `jev mcp` speaks MCP over stdio, so an MCP client's

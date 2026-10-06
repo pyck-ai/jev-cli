@@ -1,7 +1,7 @@
 // Package extract implements the jev_extract MCP tool: for each of a list
 // of named fields, runs a caller-supplied regular expression against a
 // document to find candidate substrings, then -- only if there are any --
-// asks TypeSafe's Jev judgment model's "choice" question type (via
+// asks the configured SystemOne decision model's "choice" question type (via
 // OpenRouter's SystemOne API) to pick which candidate is the field's real
 // value.
 //
@@ -201,8 +201,7 @@ func NewExtractHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 
 func init() {
 	description := "Extract named fields from unstructured text: for each field, a Go/RE2 regex finds " +
-		"candidate substrings in the document, then (only if there are candidates) TypeSafe's Jev " +
-		"judgment model picks the correct one. A zero-match field costs nothing (status=\"not_found\", " +
+		"candidate substrings in the document, then (only if there are candidates) the configured SystemOne decision model picks the correct one. A zero-match field costs nothing (status=\"not_found\", " +
 		"no model call); if every field has zero matches, no API call is made at all. Use this when a " +
 		"field's value can be bounded by a regex; for open-ended custom judgment questions use jev_ask " +
 		"instead. Example: {\"document\": \"Contact: a@b.com\", \"fields\": [{\"id\": \"email\", " +

@@ -1,7 +1,7 @@
 // Package decide implements the jev_decide MCP tool: recommends which of
 // several candidate options best satisfies a decision (given evidence and
 // priorities), optionally checking a list of requirements against every
-// candidate, using TypeSafe's Jev judgment model's "choice" question
+// candidate, using the configured SystemOne decision model's "choice" question
 // type, via OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's
@@ -213,7 +213,7 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 func init() {
 	description := "Recommend which of 2-6 candidate options best satisfies a decision, given evidence " +
 		"and priorities, with optional escape hatches (ask_user/investigate/none) and optional " +
-		"per-requirement checks, using TypeSafe's Jev judgment model. Use this to pick ONE best " +
+		"per-requirement checks, using the configured SystemOne decision model. Use this to pick ONE best " +
 		"option for a specific decision -- use jev_classify instead for bulk categorization of many " +
 		"items into fixed classes. Fails closed: a malformed or missing answer is " +
 		"status=\"invalid_response\" (recommendation) or answer=\"invalid_response\" (a requirement " +

@@ -1,6 +1,6 @@
 // Package compare implements the jev_compare MCP tool: judges the
 // factual relation between two passages -- overall, and optionally for
-// each of several specific aspects -- using TypeSafe's Jev judgment
+// each of several specific aspects -- using the configured SystemOne decision
 // model's "choice" question type, via OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's
@@ -176,7 +176,7 @@ func NewCompareHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 
 func init() {
 	description := "Compare two whole passages' factual relation (same_fact/contradicts/" +
-		"different_facts), overall and optionally per specific aspect, using TypeSafe's Jev judgment " +
+		"different_facts), overall and optionally per specific aspect, using the configured SystemOne decision " +
 		"model. Use this to compare two SYMMETRIC passages/documents against each other -- use " +
 		"jev_verify instead to check specific claims against evidence (asymmetric: claim vs " +
 		"evidence), not two full passages. Fails closed: a malformed or missing answer is reported " +

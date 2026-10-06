@@ -161,7 +161,7 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 }
 
 func init() {
-	description := "Escape hatch: ask TypeSafe's Jev judgment model an arbitrary set of named " +
+	description := "Escape hatch: ask the configured SystemOne decision model an arbitrary set of named " +
 		"noul/choice/score questions in a single SystemOne call, matching OpenRouter's own wire shape " +
 		"almost 1:1. Every question needs type, instructions and a non-empty criteria whose shape " +
 		"depends on type. Example questions: " +

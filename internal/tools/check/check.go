@@ -1,6 +1,5 @@
 // Package check implements the jev_check MCP tool: batched true/false
-// judgment of a list of independent propositions using TypeSafe's Jev
-// judgment model's "noul" question type, via OpenRouter's SystemOne API.
+// judgment of a list of independent propositions using the configured SystemOne decision model's "noul" question type, via OpenRouter's SystemOne API.
 //
 // This is functionally jkudish's jev_noul tool (see the project brief),
 // renamed jev_check in this codebase; "check" was chosen as the package

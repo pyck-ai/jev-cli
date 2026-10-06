@@ -1,6 +1,6 @@
 // Package score implements the jev_score MCP tool: judging a single piece
 // of text/data against a numeric [scale_min, scale_max] rubric using
-// TypeSafe's Jev judgment model, via OpenRouter's SystemOne API's "score"
+// the configured SystemOne decision model, via OpenRouter's SystemOne API's "score"
 // question type.
 //
 // This package is a self-registering plugin (see internal/registry's

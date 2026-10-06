@@ -23,8 +23,8 @@ import (
 	"path/filepath"
 )
 
-// DefaultModel is the OpenRouter model slug used when neither the config
-// file nor JEV_CLI_MODEL specify one.
+// DefaultModel is the OpenRouter model slug used when none of the --model
+// flag, JEV_CLI_MODEL or the config file specify one.
 //
 // Plain "typesafe/jev-latest" (no tilde) is NOT valid: a live call returns
 // HTTP 400 "Model typesafe/jev-latest does not exist". The correct
@@ -82,7 +82,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		DefaultModel:       DefaultModel,
-		ToolModelOverrides: map[string]string{"jev_score": DefaultModel},
+		ToolModelOverrides: map[string]string{},
 		Budget: Budget{
 			MaxUSDPerCall:    0.01,
 			MaxUSDPerSession: 1.0,
@@ -199,20 +199,40 @@ func Load() (Config, error) {
 // applyEnvOverrides applies JEV_CLI_MODEL (or the legacy JEV_MCP_MODEL),
 // which overrides the default_model field specifically.
 //
-// Precedence: the env var overrides cfg.DefaultModel, but an explicit
-// per-tool entry in tool_model_overrides in the config file still wins over
-// the (possibly env-overridden) default for that specific tool, since a
-// tool-specific setting is more specific than a blanket default override.
-// If you want the env var to force every tool regardless of
-// tool_model_overrides, remove the relevant entry from your config file.
+// The full model precedence chain, highest first:
+//
+//  1. the --model flag (ForceModel): forces every tool.
+//  2. tool_model_overrides[tool] in the config file: a tool-specific
+//     setting is more specific than any blanket default.
+//  3. JEV_CLI_MODEL: replaces default_model, so it applies to every tool
+//     without a tool_model_overrides entry.
+//  4. default_model in the config file.
+//  5. the built-in DefaultModel.
+//
+// Steps 3-5 are folded into cfg.DefaultModel here; ModelForTool adds step 2
+// on top, and ForceModel adds step 1.
 func applyEnvOverrides(cfg *Config) {
 	if m := getenvFirst(EnvModel, legacyEnvModel); m != "" {
 		cfg.DefaultModel = m
 	}
 }
 
+// ForceModel makes every tool use model, as the --model flag does: it sets
+// DefaultModel and drops tool_model_overrides, so it beats the per-tool
+// overrides, JEV_CLI_MODEL and default_model alike. An empty model is a
+// no-op, so callers can pass an unset flag value unconditionally.
+func (c *Config) ForceModel(model string) {
+	if model == "" {
+		return
+	}
+	c.DefaultModel = model
+	c.ToolModelOverrides = map[string]string{}
+}
+
 // ModelForTool resolves the effective model slug for the named tool:
-// tool_model_overrides[tool] if present and non-empty, else DefaultModel.
+// tool_model_overrides[tool] if present and non-empty, else DefaultModel
+// (which already reflects JEV_CLI_MODEL, default_model, the built-in
+// default, or a ForceModel call; see applyEnvOverrides for the full chain).
 func (c Config) ModelForTool(tool string) string {
 	if m, ok := c.ToolModelOverrides[tool]; ok && m != "" {
 		return m

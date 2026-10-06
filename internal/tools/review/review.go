@@ -1,7 +1,7 @@
 // Package review implements the jev_review MCP tool: a weighted,
 // multi-rubric code-review assessment (correctness, spec match, test
 // gap, blast radius, and a safe-to-apply signal) of a diff against a
-// request, using TypeSafe's Jev judgment model's "score" and "noul"
+// request, using the configured SystemOne decision model's "score" and "noul"
 // question types, via OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's

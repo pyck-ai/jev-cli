@@ -1,6 +1,6 @@
 // Package rerank implements the jev_rerank MCP tool: scores every
 // candidate's relevance to a query independently and returns them sorted
-// descending, using TypeSafe's Jev judgment model's "noul" question type,
+// descending, using the configured SystemOne decision model's "noul" question type,
 // via OpenRouter's SystemOne API.
 //
 // This package is a self-registering plugin (see internal/registry's
@@ -151,7 +151,7 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 }
 
 func init() {
-	description := "Rank a list of candidates by relevance to a query, using TypeSafe's Jev judgment " +
+	description := "Rank a list of candidates by relevance to a query, using the configured SystemOne decision " +
 		"model. Returns EVERY candidate sorted descending by relevance, not just the top one -- use " +
 		"jev_match instead if you only need the single best match and whether anything actually " +
 		"matches at all. Fails closed at the WHOLE-CALL level: if any candidate's answer is malformed, " +

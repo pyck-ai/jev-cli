@@ -96,7 +96,7 @@ as-is. If present, any field you omit keeps its default value.
 ```json
 {
   "default_model": "typesafe/jev-latest",
-  "tool_model_overrides": { "jev_score": "typesafe/jev-latest" },
+  "tool_model_overrides": {},
   "budget": { "max_usd_per_call": 0.01, "max_usd_per_session": 1.0 },
   "retry": { "max_attempts": 3, "base_backoff_ms": 500, "max_backoff_ms": 8000 },
   "request_timeout_ms": 30000
@@ -106,7 +106,7 @@ as-is. If present, any field you omit keeps its default value.
 | Field | Meaning |
 |---|---|
 | `default_model` | OpenRouter model slug used when a tool has no entry in `tool_model_overrides`. |
-| `tool_model_overrides` | Per-tool model slug overrides, keyed by tool name (any of the 14 tool names, e.g. `jev_review`, `jev_gate`, ...). |
+| `tool_model_overrides` | Per-tool model slug overrides, keyed by tool name (any of the 14 tool names, e.g. `jev_review`, `jev_gate`, ...). Default empty (no tool is pinned). Example: `{"jev_review": "typesafe/jev-1.13"}`. |
 | `budget.max_usd_per_call` | Per-call cost cap in USD. `<= 0` means unlimited. See [Budget enforcement](#budget-enforcement). |
 | `budget.max_usd_per_session` | Cumulative cost cap in USD for this server process's lifetime. `<= 0` means unlimited. |
 | `retry.max_attempts` | Total HTTP attempts per tool call (initial attempt + retries). |
@@ -118,7 +118,7 @@ as-is. If present, any field you omit keeps its default value.
 
 | Variable | Effect |
 |---|---|
-| `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool — see the doc comment on `config.applyEnvOverrides` in `internal/config/config.go` for the precedence rationale. |
+| `JEV_CLI_MODEL` | Overrides `default_model`. A tool-specific entry in `tool_model_overrides` still wins over this for that tool; the `--model` flag beats both. |
 | `JEV_CLI_CONFIG_PATH` | Overrides the config file path. |
 | `JEV_CLI_ROUTE`, `PYCKLLM_API_KEY`, `PYCKLLM_BASE_URL` | Route selection; see [Route](#route-litellm-proxy-or-direct-openrouter). |
 
