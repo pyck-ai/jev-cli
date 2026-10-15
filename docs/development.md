@@ -43,7 +43,7 @@ task build   # build and load ghcr.io/pyck-ai/jev-cli:latest for the host arch
 - The runtime sets `ENV HOME=/tmp`: config and audit log paths resolve from
   `$HOME` at startup, and an arbitrary `--user uid:gid` has no home
   directory otherwise.
-- CI ([`build-image.yml`](../.github/workflows/build-image.yml)) runs
+- The build workflow ([`build.yml`](../.github/workflows/build.yml)) runs
   [`verify.sh`](../verify.sh) inside the exact pushed digest before `latest`
   is applied. Retention is [`.ghcr-tidy.yaml`](../.ghcr-tidy.yaml) via
   `tidy-ghcr.yml`.

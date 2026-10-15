@@ -8,7 +8,7 @@ This repository is a Go CLI and MCP server (`jev`, main package `./cmd/jev`) and
 - Base images (`GOLANG_IMAGE`, `RUNTIME_IMAGE`) are floating tags in [`buildargs.conf`](buildargs.conf), on purpose: a scheduled rebuild picks up fresh bases because the shared workflow builds with `--pull`. Do not pin digests there and do not add Renovate config for them. `buildargs.conf` must keep at least one non-comment `KEY=VALUE` line: the shared workflow fails on an empty one.
 - The build stage runs on `$BUILDPLATFORM` and cross-compiles (`GOOS`/`GOARCH` from `TARGETOS`/`TARGETARCH`); never switch it to emulated builds.
 - [`.dockerignore`](.dockerignore) is a whitelist (`go.mod`, `go.sum`, `cmd/`, `internal/`). A new top-level directory the build needs must be re-included there and copied in the `Dockerfile`.
-- Triggers in [`build-image.yml`](.github/workflows/build-image.yml): weekday schedule, `workflow_dispatch`, `pull_request`, and `push` to `main` (unlike the other image repos, because the image content is this repo's code). [`tidy-ghcr.yml`](.github/workflows/tidy-ghcr.yml) and [`.ghcr-tidy.yaml`](.ghcr-tidy.yaml) handle GHCR retention. Cron slots are staggered across the pyck-ai image repos; check the others before changing one.
+- Triggers in [`build.yml`](.github/workflows/build.yml): weekday schedule, `workflow_dispatch`, `pull_request`, and `push` to `main` (unlike the other image repos, because the image content is this repo's code). [`tidy-ghcr.yml`](.github/workflows/tidy-ghcr.yml) and [`.ghcr-tidy.yaml`](.ghcr-tidy.yaml) handle GHCR retention. Cron slots are staggered across the pyck-ai image repos; check the others before changing one.
 
 ## Default user and HOME
 

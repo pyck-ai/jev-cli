@@ -1,4 +1,4 @@
-name: build-image
+name: build
 run-name: Build and push the jev-cli image
 
 # Weekdays at 14:00 UTC, plus every merge to main (see `push` below).
@@ -20,7 +20,7 @@ on:
   # here the image content IS this repo's code, so a merged change publishes
   # `latest` right away instead of waiting for the next cron slot.
   push:
-    branches: [main]
+    branches: [main, 'release/**']
 
 # Cancel any in-progress build for the same ref when a newer one is triggered.
 concurrency:
@@ -36,10 +36,24 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@e11b1f384df6cf1a71b5ace1f741f7717880b866 # v0.1.0
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
     with:
       registry: ghcr.io/pyck-ai
       # Distinct per-repo builder name so concurrent builds on the same
       # self-hosted runner don't collide on a shared default builder.
       builder-name: jev-cli
     secrets: inherit
+
+  # The one check a ruleset requires for this workflow (pyck-ai/guidelines
+  # docs/ci.md). It lives here, not in the shared workflow, so its name stays
+  # `build-success`. Runs even when build failed; fails on any failed or
+  # cancelled job it needs.
+  build-success:
+    if: always()
+    needs: [build]
+    permissions: {}
+    runs-on: self-hosted-kata
+    steps:
+      - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
+        with:
+          needs: ${{ toJSON(needs) }}

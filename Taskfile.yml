@@ -3,6 +3,9 @@ version: '3'
 vars:
   REGISTRY: '{{.REGISTRY | default "ghcr.io/pyck-ai"}}'
   CI: '{{.CI | default ""}}'
+  # The buildx builder `task build` uses. The shared build-image workflow
+  # passes its own with BUILDER=<name>; `task setup` creates the default.
+  BUILDER: '{{.BUILDER | default "jev-cli"}}'
 
   _BAKE_BUILDARGS:
     sh: >-
@@ -26,20 +29,22 @@ tasks:
           --driver=docker-container
 
   build:
-    desc: "Build the image using Docker Bake and load it locally. Args: ARCH=arm64"
+    desc: "Build every image target with Docker Bake and load it locally. Args: TARGET=<bake target>, BUILDER=<buildx builder>, ARCH=arm64"
     cmds:
+      # Under CI=true (the shared build-image workflow) no local-only flags:
+      # no host platform, no --load, and the pipeline's own overrides in
+      # CLI_ARGS decide caching and pushing.
       - >-
         docker buildx bake
         --pull
-        --builder jev-cli
-        {{if not .CI}}--set {{ (printf "*.platform=linux/%s" (.ARCH | default ._HOST_ARCH)) | q}} --load{{end}}
-        --set "*.cache-from="
-        --set "*.cache-to="
+        --builder {{.BUILDER | q}}
+        {{if not .CI}}--set {{ (printf "*.platform=linux/%s" (.ARCH | default ._HOST_ARCH)) | q}} --load --set "*.cache-from=" --set "*.cache-to="{{end}}
         --var REGISTRY={{ .REGISTRY | q}}
         {{._BAKE_BUILDARGS}}
         {{if .CLI_VERBOSE}}--debug{{end}}
         {{.BAKE_EXTRA}}
         {{.CLI_ARGS}}
+        {{.TARGET}}
 
   eval:toolselect:
     desc: "Offline tool-selection eval for the jev MCP tools (needs PYCKLLM_API_KEY or --openrouter). Args: -- --models a,b --filter decide --reps 3"
