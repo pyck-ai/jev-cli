@@ -45,7 +45,7 @@ task build   # build and load ghcr.io/pyck-ai/jev-cli:latest for the host arch
   directory otherwise.
 - The build workflow ([`build.yml`](../.github/workflows/build.yml)) runs
   [`verify.sh`](../verify.sh) inside the exact pushed digest before `latest`
-  is applied. Retention is [`.github/ghcr-tidy.yml`](../.github/ghcr-tidy.yml) via
+  is applied. Retention is [`.github/tidy-ghcr.yml`](../.github/tidy-ghcr.yml) via
   `tidy-ghcr.yml`.
 
 ## Testing
