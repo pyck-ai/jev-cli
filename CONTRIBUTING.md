@@ -36,11 +36,12 @@ skip the issue and go straight to a pull request.
   config field, a tool's input/output shape — update the matching section of
   [`docs/`](docs/README.md) in the same change. Most tool behavior lives in
   [Tool reference](docs/tool-reference.md).
-- Run `go build ./...`, `go vet ./...`, `gofmt -l .`, and
-  `go test -race -count=1 ./...` (see [Development](docs/development.md))
-  before opening a pull request. CI (`.github/workflows/ci.yml`) runs the
-  same four on every pull request and push to `main`; its `success` job is
-  the one required status check.
+- Run `task ci` (`go vet ./...`, `gofmt -l .`,
+  `go test -race -count=1 ./...` and `go build ./...`, see
+  [Development](docs/development.md)) before opening a pull request. CI
+  (`.github/workflows/ci.yml`) runs the same tasks on every pull request and
+  push to `main` or a release branch; its `ci-success` job is the required
+  status check.
 - If you change the `Dockerfile`, `ENV`, the default user, or any file the
   image must ship, update [`verify.sh`](verify.sh) in the same change (see
   [Docker image](docs/development.md#docker-image)).

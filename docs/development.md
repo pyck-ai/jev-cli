@@ -19,8 +19,8 @@ To install without a checkout, use `go install`, which puts `jev` in
 go install github.com/pyck-ai/jev-cli/cmd/jev@main
 ```
 
-`go vet ./...`, `gofmt -l .` (no output), and `go test -race ./...` are also
-clean (see [Testing](#testing)).
+`task ci` (`go vet ./...`, `gofmt -l .` with no output, `go test -race ./...`
+and `go build ./...`) also passes (see [Testing](#testing)).
 
 ### Docker image
 

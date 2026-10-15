@@ -1,12 +1,14 @@
 name: ci
 run-name: CI
 
-# Runs on every pull request and on every push to main, so branch protection
-# always has a fresh status check to gate on.
+# Runs on every pull request and on every push to main or a release branch,
+# so the required `ci-success` check always reports. Each job runs one
+# Taskfile task; `task ci` runs the same three in sequence locally
+# (pyck-ai/guidelines docs/ci.md).
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
 
 # Cancel superseded runs for the same ref (PR head or main): nothing here
 # publishes anything, so an in-flight run can always be safely replaced.
@@ -17,81 +19,42 @@ concurrency:
 # No default token scope. Every job below declares exactly what it needs.
 permissions: {}
 
+# The self-hosted-kata runner has task, go and gcc (for `go test -race`)
+# and no docker, which none of these tasks needs.
 jobs:
   lint:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-kata
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Check formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "::error::gofmt found unformatted files:"
-            echo "$unformatted"
-            exit 1
-          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: task lint
 
   test:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-kata
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: task test
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
-      # Same command CONTRIBUTING.md asks contributors to run before opening
-      # a pull request.
-      - name: Test
-        run: go test -race -count=1 ./...
-
-  build:
+  compile:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-kata
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: task compile
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
-      - name: Build
-        run: go build ./...
-
-  # Aggregate check for branch protection: the one required status check.
-  # Fails if any job above failed, was cancelled, or was skipped, so adding
-  # a job here never needs a branch-protection change, only an edit to
-  # `needs`.
-  success:
+  # The one check the org ruleset requires. Runs even when a job above
+  # failed, and fails on any failed or cancelled job in `needs`. Add a job
+  # above and its name here, nothing else.
+  ci-success:
     if: always()
-    needs: [lint, test, build]
-    # Only inspects job results from the GitHub context; touches no repo
-    # content.
+    needs: [lint, test, compile]
     permissions: {}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-kata
     steps:
-      - name: Check all required jobs succeeded
-        run: |
-          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
-            echo "::error::one or more required jobs did not succeed"
-            exit 1
-          fi
+      - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
+        with:
+          needs: ${{ toJSON(needs) }}

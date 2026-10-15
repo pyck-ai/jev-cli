@@ -19,6 +19,37 @@ dotenv:
   - buildargs.conf
 
 tasks:
+  ci:
+    desc: "Run every check (lint, test, compile); CI runs the same tasks"
+    cmds:
+      - task: lint
+      - task: test
+      - task: compile
+
+  lint:
+    desc: "go vet and gofmt"
+    cmds:
+      - go vet ./...
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "gofmt found unformatted files:" >&2
+          echo "$unformatted" >&2
+          exit 1
+        fi
+
+  test:
+    desc: "Unit tests with the race detector (needs a C compiler)"
+    cmds:
+      # On the command, not as task env: an inherited CGO_ENABLED (the
+      # golang and all-in-one images set 0) wins over a task env entry.
+      - CGO_ENABLED=1 go test -race -count=1 ./...
+
+  compile:
+    desc: "Check that every package compiles"
+    cmds:
+      - go build ./...
+
   setup:
     desc: "Create the 'jev-cli' buildx builder (run once per machine)"
     cmds:
