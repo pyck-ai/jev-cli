@@ -61,8 +61,8 @@
 // question (e.g. one per claim/candidate/item) into a single HTTP round
 // trip -- SystemOne's request shape already supported this ("questions"
 // is a map, not a single question) even though the original
-// jev_score-only client only ever populated one key of it. Client.Score
-// is now a thin wrapper around Client.Ask, preserving jev_score's exact
+// score-only client only ever populated one key of it. Client.Score
+// is now a thin wrapper around Client.Ask, preserving score's exact
 // historical wire format byte-for-byte (see internal/tools/score, which
 // required no changes for this generalization).
 //
@@ -113,7 +113,7 @@ const BaseURL = "https://openrouter.ai/api/v1"
 // []string-criteria-only ScoreQuestion type; encoding an `any` holding a
 // []string produces byte-for-byte identical JSON to encoding a concrete
 // []string field, so this rename+generalization did not change
-// jev_score's wire format (see the package doc comment's "Generalization"
+// score's wire format (see the package doc comment's "Generalization"
 // section).
 type Question struct {
 	Type         string `json:"type"`
@@ -127,7 +127,7 @@ type Question struct {
 // string, or a JSON object or array of related context"; most tools in
 // this codebase send a plain string, but the field is `any` rather than
 // `string` to stay faithful to the documented union type for tools that
-// do pass structured state (e.g. jev_ask, which passes through whatever
+// do pass structured state (e.g. ask, which passes through whatever
 // shape its caller supplied verbatim).
 type Request struct {
 	Model     string              `json:"model"`

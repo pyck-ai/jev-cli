@@ -1,4 +1,4 @@
-// This file adds jev_screen's CLI subcommand (`jev screen ...`), built on
+// This file adds screen's CLI subcommand (`jev screen ...`), built on
 // top of the same run core as the MCP handler (see screen.go).
 package screen
 

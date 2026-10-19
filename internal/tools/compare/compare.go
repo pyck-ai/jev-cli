@@ -1,4 +1,4 @@
-// Package compare implements the jev_compare MCP tool: judges the
+// Package compare implements the compare MCP tool: judges the
 // factual relation between two passages -- overall, and optionally for
 // each of several specific aspects -- using the configured SystemOne decision
 // model's "choice" question type, via OpenRouter's SystemOne API.
@@ -30,7 +30,7 @@
 // established by internal/tools/score.ScoreOutput.BudgetExceeded; unlike
 // internal/tools/reviewcore, truncation does NOT block Decision ==
 // "auto" here -- the brief only specifies that blocking behavior for
-// jev_review/jev_gate, not for jev_compare.
+// review/gate, not for compare.
 package compare
 
 import (
@@ -54,7 +54,7 @@ import (
 )
 
 // ToolNameCompare is the MCP tool name registered for CompareHandler.
-const ToolNameCompare = "jev_compare"
+const ToolNameCompare = "compare"
 
 // Caps named verbatim in the project brief (passage size), plus this
 // implementation's own invented cap on aspect count (see package doc
@@ -65,7 +65,7 @@ const (
 )
 
 // defaultAutoAccept is the project brief's literal default for
-// jev_compare's auto_accept.
+// compare's auto_accept.
 const defaultAutoAccept = 0.8
 
 // The three relation options every question offers, verbatim from the
@@ -105,7 +105,7 @@ type Usage struct {
 	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
-// CompareInput is the jev_compare tool's input schema.
+// CompareInput is the compare tool's input schema.
 type CompareInput struct {
 	PassageA   string   `json:"passage_a" jsonschema:"First passage; truncated at 20,000 chars"`
 	PassageB   string   `json:"passage_b" jsonschema:"Second passage; truncated at 20,000 chars"`
@@ -136,7 +136,7 @@ type AspectResult struct {
 	Status     string  `json:"status"`
 }
 
-// CompareOutput is the jev_compare tool's output schema.
+// CompareOutput is the compare tool's output schema.
 type CompareOutput struct {
 	Overall OverallResult  `json:"overall"`
 	Aspects []AspectResult `json:"aspects,omitempty"`
@@ -150,7 +150,7 @@ type CompareOutput struct {
 	BudgetExceeded bool   `json:"budget_exceeded,omitempty"`
 }
 
-// CompareHandler implements the jev_compare tool.
+// CompareHandler implements the compare tool.
 type CompareHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -176,11 +176,10 @@ func NewCompareHandler(client *openrouter.Client, cfg config.Config, tracker *bu
 
 func init() {
 	description := "Compare two whole passages: same_fact, contradicts or different_facts overall and per optional aspect, " +
-		"with a decision (auto/review). Use jev_verify instead to check claims against evidence. " +
+		"with a decision (auto/review). Use verify instead to check claims against evidence. " +
 		"Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "compare",
-		MCPName:     ToolNameCompare,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewCompareHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -209,7 +208,7 @@ func (h *CompareHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 	return nil, out, nil
 }
 
-// run is jev_compare's transport-agnostic core: everything from input
+// run is compare's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -229,7 +228,7 @@ func (h *CompareHandler) run(ctx context.Context, in CompareInput) (CompareOutpu
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_compare: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("compare: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameCompare, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -266,7 +265,7 @@ func (h *CompareHandler) run(ctx context.Context, in CompareInput) (CompareOutpu
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: 1 + len(in.Aspects),
 		})
-		return CompareOutput{}, fmt.Errorf("jev_compare: %w", callErr)
+		return CompareOutput{}, fmt.Errorf("compare: %w", callErr)
 	}
 
 	out := CompareOutput{Model: resp.Model, LatencyMs: latencyMs, Truncated: truncated}
@@ -348,21 +347,21 @@ func parseRelation(answersMap map[string]json.RawMessage, key string) (relation 
 // budget or making a network call.
 func validateInput(in CompareInput) error {
 	if strings.TrimSpace(in.PassageA) == "" {
-		return fmt.Errorf("jev_compare: passage_a must not be empty; provide the first passage to compare")
+		return fmt.Errorf("compare: passage_a must not be empty; provide the first passage to compare")
 	}
 	if strings.TrimSpace(in.PassageB) == "" {
-		return fmt.Errorf("jev_compare: passage_b must not be empty; provide the second passage to compare")
+		return fmt.Errorf("compare: passage_b must not be empty; provide the second passage to compare")
 	}
 	if len(in.Aspects) > maxAspects {
-		return fmt.Errorf("jev_compare: aspects has %d entries, exceeding the max of %d; compare fewer aspects per call", len(in.Aspects), maxAspects)
+		return fmt.Errorf("compare: aspects has %d entries, exceeding the max of %d; compare fewer aspects per call", len(in.Aspects), maxAspects)
 	}
 	for i, a := range in.Aspects {
 		if strings.TrimSpace(a) == "" {
-			return fmt.Errorf("jev_compare: aspects[%d] must not be empty; each aspect is a plain string naming a specific angle to compare on, e.g. \"pricing\"", i)
+			return fmt.Errorf("compare: aspects[%d] must not be empty; each aspect is a plain string naming a specific angle to compare on, e.g. \"pricing\"", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf("jev_compare: %w", err)
+		return fmt.Errorf("compare: %w", err)
 	}
 	return nil
 }

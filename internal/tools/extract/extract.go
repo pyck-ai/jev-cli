@@ -1,4 +1,4 @@
-// Package extract implements the jev_extract MCP tool: for each of a list
+// Package extract implements the extract MCP tool: for each of a list
 // of named fields, runs a caller-supplied regular expression against a
 // document to find candidate substrings, then -- only if there are any --
 // asks the configured SystemOne decision model's "choice" question type (via
@@ -67,7 +67,7 @@
 // an optional input field per this codebase's general convention -- see
 // internal/answers.ResolveThreshold's doc comment) is this
 // implementation's own invention: the brief did not state a confidence
-// threshold or default for jev_extract's auto/review split at all.
+// threshold or default for extract's auto/review split at all.
 package extract
 
 import (
@@ -90,7 +90,7 @@ import (
 )
 
 // ToolNameExtract is the MCP tool name registered for ExtractHandler.
-const ToolNameExtract = "jev_extract"
+const ToolNameExtract = "extract"
 
 // Caps named verbatim in the project brief.
 const (
@@ -139,7 +139,7 @@ type Field struct {
 	Description string `json:"description" jsonschema:"What the field is, shown to the model to pick among candidates"`
 }
 
-// ExtractInput is the jev_extract tool's input schema.
+// ExtractInput is the extract tool's input schema.
 type ExtractInput struct {
 	Document   string  `json:"document" jsonschema:"The text itself, pasted in full (never a file path or a request to read one); truncated at 50,000 chars"`
 	Fields     []Field `json:"fields" jsonschema:"1-32 fields, each with id, pattern, description"`
@@ -162,7 +162,7 @@ type FieldResult struct {
 	CandidatesTruncated  bool    `json:"candidates_truncated"`
 }
 
-// ExtractOutput is the jev_extract tool's output schema.
+// ExtractOutput is the extract tool's output schema.
 //
 // Model/Usage are nil and LatencyMs still reflects real elapsed regex-only
 // processing time when every field resolved without a model call at all
@@ -175,7 +175,7 @@ type ExtractOutput struct {
 	BudgetExceeded bool          `json:"budget_exceeded,omitempty"`
 }
 
-// ExtractHandler implements the jev_extract tool.
+// ExtractHandler implements the extract tool.
 type ExtractHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -203,10 +203,9 @@ func init() {
 	description := "Disambiguate regex matches in text you ALREADY HAVE: per field a Go/RE2 regex finds candidates in the " +
 		"given text, then the model picks the right one. Not for reading files, editing code or general tasks. " +
 		"Returns fields[] with id, value (or null), status (auto/review/not_found/invalid_pattern/" +
-		"invalid_response); never fabricates a value. Use jev_ask for open-ended questions."
+		"invalid_response); never fabricates a value. Use ask for open-ended questions."
 	registry.Register(registry.Tool{
 		Name:        "extract",
-		MCPName:     ToolNameExtract,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewExtractHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -235,7 +234,7 @@ func (h *ExtractHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in 
 	return nil, out, nil
 }
 
-// run is jev_extract's transport-agnostic core: everything from input
+// run is extract's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -289,7 +288,7 @@ func (h *ExtractHandler) run(ctx context.Context, in ExtractInput) (ExtractOutpu
 	}
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_extract: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("extract: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameExtract, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -332,7 +331,7 @@ func (h *ExtractHandler) run(ctx context.Context, in ExtractInput) (ExtractOutpu
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Fields),
 		})
-		return ExtractOutput{}, fmt.Errorf("jev_extract: %w", callErr)
+		return ExtractOutput{}, fmt.Errorf("extract: %w", callErr)
 	}
 
 	out := ExtractOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -428,32 +427,32 @@ func findCandidates(re *regexp.Regexp, document string, maxMatches int, timeout 
 // regex or spending any budget.
 func validateInput(in ExtractInput) error {
 	if strings.TrimSpace(in.Document) == "" {
-		return fmt.Errorf("jev_extract: document must not be empty; provide the text to extract fields from (a non-empty string, up to 50,000 characters)")
+		return fmt.Errorf("extract: document must not be empty; provide the text to extract fields from (a non-empty string, up to 50,000 characters)")
 	}
 	if len(in.Fields) == 0 {
-		return fmt.Errorf(`jev_extract: fields must not be empty; provide 1-32 fields, each an object with id, pattern, and description, e.g. [{"id":"email","pattern":"[0-9]{3}-[0-9]{4}","description":"the contact phone extension"}]`)
+		return fmt.Errorf(`extract: fields must not be empty; provide 1-32 fields, each an object with id, pattern, and description, e.g. [{"id":"email","pattern":"[0-9]{3}-[0-9]{4}","description":"the contact phone extension"}]`)
 	}
 	if len(in.Fields) > maxFields {
-		return fmt.Errorf("jev_extract: fields has %d entries, more than the max of %d; remove some fields or split the document across multiple calls", len(in.Fields), maxFields)
+		return fmt.Errorf("extract: fields has %d entries, more than the max of %d; remove some fields or split the document across multiple calls", len(in.Fields), maxFields)
 	}
 	seen := make(map[string]bool, len(in.Fields))
 	for i, f := range in.Fields {
 		if strings.TrimSpace(f.ID) == "" {
-			return fmt.Errorf(`jev_extract: fields[%d].id must not be empty; give this field a short unique identifier, e.g. "email"`, i)
+			return fmt.Errorf(`extract: fields[%d].id must not be empty; give this field a short unique identifier, e.g. "email"`, i)
 		}
 		if seen[f.ID] {
-			return fmt.Errorf("jev_extract: fields[%d].id: %q is already used by another field; every fields[].id must be unique within one call", i, f.ID)
+			return fmt.Errorf("extract: fields[%d].id: %q is already used by another field; every fields[].id must be unique within one call", i, f.ID)
 		}
 		seen[f.ID] = true
 		if strings.TrimSpace(f.Pattern) == "" {
-			return fmt.Errorf(`jev_extract: fields[%d].pattern must not be empty; provide a Go/RE2 regular expression (no backreferences or lookaround) whose matches become this field's candidates, e.g. "[0-9]{3}-[0-9]{4}"`, i)
+			return fmt.Errorf(`extract: fields[%d].pattern must not be empty; provide a Go/RE2 regular expression (no backreferences or lookaround) whose matches become this field's candidates, e.g. "[0-9]{3}-[0-9]{4}"`, i)
 		}
 		if strings.TrimSpace(f.Description) == "" {
-			return fmt.Errorf(`jev_extract: fields[%d].description must not be empty; describe in plain language what this field represents so the model can pick the right match, e.g. "the customer's phone number"`, i)
+			return fmt.Errorf(`extract: fields[%d].description must not be empty; describe in plain language what this field represents so the model can pick the right match, e.g. "the customer's phone number"`, i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf(`jev_extract: %w (0 means "use the default 0.8")`, err)
+		return fmt.Errorf(`extract: %w (0 means "use the default 0.8")`, err)
 	}
 	return nil
 }

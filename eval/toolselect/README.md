@@ -21,7 +21,7 @@ go run ./eval/toolselect --show-tools | jq '.[].name'                       # to
 | `--reps` | 1 | repetitions per case and model |
 | `--concurrency` | 4 | parallel requests |
 | `--timeout` | 90s | per request; 429/5xx are retried twice |
-| `--prefix` | `jev_` | host-added prefix; opencode shows `jev_jev_ask` |
+| `--prefix` | `jev_` | host-added prefix; opencode shows `jev_ask` |
 | `--max-tokens` | 4096 | headroom for reasoning models |
 | `--base-url`, `--api-key-env` | `$PYCKLLM_BASE_URL` or `http://127.0.0.1:53986`, `PYCKLLM_API_KEY` | endpoint and key env var |
 | `--openrouter` | off | base `https://openrouter.ai/api/v1`, key `OPENROUTER_API_KEY`, every model on `/chat/completions` |

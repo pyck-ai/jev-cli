@@ -1,11 +1,11 @@
-// Package score implements the jev_score MCP tool: judging a single piece
+// Package score implements the score MCP tool: judging a single piece
 // of text/data against a numeric [scale_min, scale_max] rubric using
 // the configured SystemOne decision model, via OpenRouter's SystemOne API's "score"
 // question type.
 //
 // This package is a self-registering plugin (see internal/registry's
 // package doc comment for the overall mechanism): its init() function
-// registers a registry.Tool whose RegisterMCP wires jev_score onto
+// registers a registry.Tool whose RegisterMCP wires score onto
 // whatever *mcp.Server cmd/jev/main.go passes it at startup. cmd/jev/main.go activates it
 // with a single blank import,
 // `_ "github.com/pyck-ai/jev-cli/internal/tools/score"` -- deleting this
@@ -13,7 +13,7 @@
 // no other file needs to change.
 //
 // This package is a structural move of what was previously
-// internal/tools/jev_score.go (package tools, the sole tool at the time):
+// internal/tools/score.go (package tools, the sole tool at the time):
 // behavior, input/output schema, and wire format are unchanged from before
 // the move to a per-tool-package plugin architecture.
 package score
@@ -39,7 +39,7 @@ import (
 
 // ToolNameScore is the MCP tool name registered for ScoreHandler, and the
 // key used in config.Config.ToolModelOverrides and audit.Entry.Tool.
-const ToolNameScore = "jev_score"
+const ToolNameScore = "score"
 
 // Status values for ScoreOutput.Status. Exactly the two values named in the
 // project brief: never a third value, even when a call errors out entirely
@@ -66,7 +66,7 @@ type Usage struct {
 	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
-// ScoreInput is the jev_score tool's input schema.
+// ScoreInput is the score tool's input schema.
 type ScoreInput struct {
 	State        string `json:"state" jsonschema:"The text or data to grade (plain string)"`
 	ScaleMin     int    `json:"scale_min" jsonschema:"Inclusive lowest level; must be < scale_max"`
@@ -74,7 +74,7 @@ type ScoreInput struct {
 	Instructions string `json:"instructions" jsonschema:"What each level from scale_min to scale_max means"`
 }
 
-// ScoreOutput is the jev_score tool's output schema.
+// ScoreOutput is the score tool's output schema.
 //
 // Callers MUST check Status == "ok" before trusting Score, Confidence, or
 // Probabilities: per the project brief's fail-closed requirement, when
@@ -112,7 +112,7 @@ type ScoreOutput struct {
 	BudgetExceeded bool `json:"budget_exceeded,omitempty"`
 }
 
-// ScoreHandler implements the jev_score tool.
+// ScoreHandler implements the score tool.
 type ScoreHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -138,17 +138,16 @@ func NewScoreHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 	}
 }
 
-// init registers jev_score with internal/registry, so a blank import of
+// init registers score with internal/registry, so a blank import of
 // this package (see cmd/jev/main.go) is all that's needed to activate it -- see
 // this package's doc comment and internal/registry's for the full
 // mechanism.
 func init() {
 	description := "Grade one text against an integer rubric [scale_min, scale_max]; returns score, confidence and a " +
-		"probability for every level. Use jev_check instead for true/false. Fails closed: check status; " +
+		"probability for every level. Use check instead for true/false. Fails closed: check status; " +
 		"bad answers are status=invalid_response, never a guessed score."
 	registry.Register(registry.Tool{
 		Name:        "score",
-		MCPName:     ToolNameScore,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewScoreHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -177,7 +176,7 @@ func (h *ScoreHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Sc
 	return nil, out, nil
 }
 
-// run is jev_score's transport-agnostic core: everything from input
+// run is score's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -195,7 +194,7 @@ func (h *ScoreHandler) run(ctx context.Context, in ScoreInput) (ScoreOutput, err
 	// comment for why only the session cap (not the per-call cap) can be
 	// enforced before sending the request.
 	if h.budget.SessionBudgetExceeded() {
-		err := fmt.Errorf("jev_score: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		err := fmt.Errorf("score: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool:             ToolNameScore,
 			Model:            h.model,
@@ -228,7 +227,7 @@ func (h *ScoreHandler) run(ctx context.Context, in ScoreInput) (ScoreOutput, err
 			LatencyMs:        latencyMs,
 			Error:            callErr.Error(),
 		})
-		return ScoreOutput{}, fmt.Errorf("jev_score: %w", callErr)
+		return ScoreOutput{}, fmt.Errorf("score: %w", callErr)
 	}
 
 	out := ScoreOutput{
@@ -292,16 +291,16 @@ func (h *ScoreHandler) run(ctx context.Context, in ScoreInput) (ScoreOutput, err
 // carry enough information to fix the call on the next try.
 func validateInput(in ScoreInput) error {
 	if strings.TrimSpace(in.State) == "" {
-		return fmt.Errorf("jev_score: state: must not be empty; provide the text or data to judge as a non-empty string, e.g. \"The PRD covers scope, metrics, and risks.\"")
+		return fmt.Errorf("score: state: must not be empty; provide the text or data to judge as a non-empty string, e.g. \"The PRD covers scope, metrics, and risks.\"")
 	}
 	if strings.TrimSpace(in.Instructions) == "" {
-		return fmt.Errorf("jev_score: instructions: must not be empty; describe what each scale level means, e.g. \"0=incorrect, 1=partially correct, 2=fully correct\"")
+		return fmt.Errorf("score: instructions: must not be empty; describe what each scale level means, e.g. \"0=incorrect, 1=partially correct, 2=fully correct\"")
 	}
 	if in.ScaleMax <= in.ScaleMin {
-		return fmt.Errorf("jev_score: scale_max: must be greater than scale_min (got scale_max=%d, scale_min=%d); e.g. scale_min=0, scale_max=2", in.ScaleMax, in.ScaleMin)
+		return fmt.Errorf("score: scale_max: must be greater than scale_min (got scale_max=%d, scale_min=%d); e.g. scale_min=0, scale_max=2", in.ScaleMax, in.ScaleMin)
 	}
 	if levels := in.ScaleMax - in.ScaleMin + 1; levels > maxScaleLevels {
-		return fmt.Errorf("jev_score: scale_min/scale_max: range too large (%d levels; max %d); narrow the gap between scale_min and scale_max so it spans at most %d levels", levels, maxScaleLevels, maxScaleLevels)
+		return fmt.Errorf("score: scale_min/scale_max: range too large (%d levels; max %d); narrow the gap between scale_min and scale_max so it spans at most %d levels", levels, maxScaleLevels, maxScaleLevels)
 	}
 	return nil
 }

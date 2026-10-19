@@ -1,4 +1,4 @@
-// This file adds jev_decide's CLI subcommand (`jev decide ...`), built
+// This file adds decide's CLI subcommand (`jev decide ...`), built
 // on top of the same run core as the MCP handler (see decide.go).
 package decide
 
@@ -28,10 +28,10 @@ const cliShortDescription = "Recommend the best candidate for a decision"
 //
 //  1. Recommendation carries ONLY a Status field (ok/invalid_response),
 //     no Decision field at all (see decide.go's package doc comment:
-//     "jev_decide's own project brief names NO confidence/auto-accept
+//     "decide's own project brief names NO confidence/auto-accept
 //     threshold for its Recommendation... this implementation adds
 //     none") -- structurally that makes it a single-verdict field like
-//     jev_score/jev_rerank's Status, not a per-item Status+Decision pair
+//     score/rerank's Status, not a per-item Status+Decision pair
 //     like classify.ItemResult/compare.OverallResult. A malformed main
 //     "decision" answer leaves Selected="" and Escaped=false (Go zero
 //     values), which the literal one-line spec would misreport as exit 0

@@ -1,4 +1,4 @@
-// This file adds jev_extract's CLI subcommand (`jev extract ...`), built
+// This file adds extract's CLI subcommand (`jev extract ...`), built
 // on top of the same run core as the MCP handler (see extract.go).
 package extract
 

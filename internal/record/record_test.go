@@ -44,8 +44,9 @@ func TestSummarize(t *testing.T) {
 	yes, no := true, false
 	lat := 100.0
 	r.Session(Record{Mode: "mcp"})
+	// Records written before MCP tools went bare carry the jev_ prefix; the
+	// CLI and current MCP record the bare name. They must merge into one tool.
 	r.Write(Record{Kind: KindToolCall, Tool: "jev_ask", IsError: &no, LatencyMS: &lat})
-	// The CLI records the bare name; it must merge with MCP's jev_ask.
 	r.Write(Record{Kind: KindToolCall, Transport: "cli", Tool: "ask", IsError: &yes, LatencyMS: &lat})
 	r.Write(Record{Kind: KindSystemOne, Model: "m", LatencyMS: &lat})
 	r.Close()

@@ -17,9 +17,9 @@
 //
 // The "score" shape and its validation rules (probabilities must cover
 // every expected 0-based index and sum to ~1, tolerance 0.01) are exactly
-// what internal/tools/score's jev_score implementation already validated
+// what internal/tools/score's score implementation already validated
 // before this package existed -- extracted here, not re-derived, so
-// jev_score and every other score-typed question in this codebase share
+// score and every other score-typed question in this codebase share
 // one implementation instead of two independently-maintained copies (see
 // internal/tools/score's parseScoreAnswer, which now delegates its core
 // validation to Score below).
@@ -133,9 +133,9 @@ func Choice(raw json.RawMessage, validOptions map[string]bool) (choice string, c
 // score/confidence/probabilities. Every index in [0,levels) must be
 // present in probabilities and in [-0.001,1.001], and the probabilities
 // must sum to ~1 (tolerance 0.01) -- exactly the validation
-// internal/tools/score's jev_score has always applied.
+// internal/tools/score's score has always applied.
 //
-// Callers needing a non-zero-based scale (jev_score itself: an arbitrary
+// Callers needing a non-zero-based scale (score itself: an arbitrary
 // caller-supplied [scale_min, scale_max]) remap the returned 0-based
 // score/probabilities afterwards; this function has no opinion about
 // that remapping (see internal/tools/score.parseScoreAnswer).
@@ -165,8 +165,8 @@ func Score(raw json.RawMessage, levels int) (score, confidence float64, probabil
 }
 
 // ResolveThreshold returns v if v > 0, else def. Added for the second batch
-// of tools (jev_verify, jev_screen, jev_check, jev_classify, jev_compare,
-// jev_review, jev_gate, jev_extract), every one of which exposes at least
+// of tools (verify, screen, check, classify, compare,
+// review, gate, extract), every one of which exposes at least
 // one "default 0.NN"-style threshold (auto_accept, composite_floor,
 // block_at, review_at, minimum_margin, ...) as an OPTIONAL input field: per
 // the project brief's own description of jkudish's jev_noul auto_accept as
@@ -190,7 +190,7 @@ func ResolveThreshold(v, def float64) float64 {
 // "use the default", see ResolveThreshold) is always fine; any explicit
 // non-zero value must be strictly greater than 0.5 and at most 1.
 //
-// The lower bound is stated verbatim in the project brief for jev_check's
+// The lower bound is stated verbatim in the project brief for check's
 // auto_accept ("must be > 0.5"); every other tool in this codebase that
 // exposes an auto_accept-style field applies the same rule for consistency
 // even where the brief didn't repeat it verbatim for that specific tool --

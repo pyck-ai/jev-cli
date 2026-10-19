@@ -14,8 +14,9 @@ Every tool is a self-registering plugin, modeled directly on Go's
 
 - Each tool lives in its own package under `internal/tools/<name>/`.
 - That package's `init()` function calls `registry.Register(...)` with a
-  `registry.Tool`: `Name` (bare CLI subcommand name, e.g. `"score"`),
-  `MCPName` (e.g. `"jev_score"`), `Description`, a `RegisterMCP` closure
+  `registry.Tool`: `Name` (the bare tool name, e.g. `"score"`: the CLI subcommand, the MCP
+  tool name, the `tool_model_overrides` key and the audit `tool`),
+  `Description`, a `RegisterMCP` closure
   that builds the tool's handler from `*registry.Deps` (the shared
   `Client`/`Config`/`Budget`/`Audit` infrastructure) and calls
   `mcp.AddTool` against whatever `*mcp.Server` it's given, and a
@@ -52,7 +53,7 @@ tool's `cli.go` should copy):
   `Input` field (JSON tag, snake_case → kebab-case), plus the shared
   `--json`/`-j` flag for supplying the whole input as one JSON object (or
   reading it from stdin via `-j -`). A structured field (slice, map,
-  nested struct, or a `string`-or-JSON field like `jev_ask`'s `state`)
+  nested struct, or a `string`-or-JSON field like `ask`'s `state`)
   takes its flag value as JSON text, not a bare literal — see
   [Tool reference](tool-reference.md) for which fields need this per tool.
   Required-field validation is NOT duplicated in `cliinput`: each tool's
@@ -90,7 +91,7 @@ one's tests can catch a behavior regression.
 `<name>`) whose `init()` registers itself — see `internal/tools/check`'s
 `check.go` for a compact reference implementation, or
 `internal/tools/score`'s `score.go` for the original tool this architecture
-was extracted from. Set `Run: registry.Runner(...)` in the `Register` call (what makes it batchable via `jev_batch`; `cmd/jev`'s `TestEveryToolExceptDoctorAndBatchHasRun` enforces it). Then add one blank-import line to `cmd/jev/main.go`.
+was extracted from. Set `Run: registry.Runner(...)` in the `Register` call (what makes it batchable via `batch`; `cmd/jev`'s `TestEveryToolExceptDoctorAndBatchHasRun` enforces it). Then add one blank-import line to `cmd/jev/main.go`.
 
 **Removing a tool**: delete that package directory, then delete its
 blank-import line from `cmd/jev/main.go`.
@@ -110,14 +111,14 @@ Shared plumbing every tool reuses rather than reimplementing:
 | `internal/capstring` | Rune-count text truncation for every "capped at N characters" input field. |
 | `internal/budget` | Session spend tracking + pre-call refusal (shared by every tool's handler). |
 | `internal/audit` | JSONL audit log (`audit.Entry`, `audit.HashValue`, including `ItemCount`/`InvalidCount` for batched tools — see [Audit log](configuration.md#audit-log)). |
-| `internal/tools/reviewcore` | The four-rubric scoring/composite/action logic shared by `jev_review` and `jev_gate`. |
+| `internal/tools/reviewcore` | The four-rubric scoring/composite/action logic shared by `review` and `gate`. |
 
 ### Conventions shared by every tool
 
 - **Fail-closed, always.** Every atomic judgment (a claim, proposition,
   candidate, item, field, requirement check, rubric, ...) carries a status
   that is either `"ok"`, or `"invalid_response"` (sometimes folded directly
-  into a richer tool-specific enum, e.g. `jev_extract`'s field `status`) —
+  into a richer tool-specific enum, e.g. `extract`'s field `status`) —
   never a fabricated verdict. A malformed/missing item always forces its
   tool's most conservative action (`review` rather than `auto`; `escalate`
   rather than `review`, where both exist).
@@ -127,10 +128,10 @@ Shared plumbing every tool reuses rather than reimplementing:
   `auto_accept`-style confidence bars must be `> 0.5` if set explicitly
   (see `answers.ValidateAutoAccept`).
 - **Size caps: truncate a single field, reject a list/aggregate.** A single
-  text field capped at N characters (e.g. `jev_compare`'s `passage_a`) is
+  text field capped at N characters (e.g. `compare`'s `passage_a`) is
   silently truncated (rune-counted, via `capstring.Truncate`). A list capped
   at N items, or an aggregate character cap across a whole list (e.g.
-  `jev_rerank`'s 100,000-character aggregate), instead **rejects the call
+  `rerank`'s 100,000-character aggregate), instead **rejects the call
   outright** with a clear validation error: silently dropping or truncating
   an unspecified subset of a list would change the very result the tool
   produces, in a way a caller could easily miss.
@@ -143,7 +144,7 @@ Shared plumbing every tool reuses rather than reimplementing:
   being able to see a sibling question's own `criteria`/`instructions`
   within the same request, since that cross-visibility is not a documented
   or verified SystemOne behavior.
-- **Same budget/audit plumbing as `jev_score`, every time.** Pre-call
+- **Same budget/audit plumbing as `score`, every time.** Pre-call
   session-budget refusal, post-hoc per-call `budget_exceeded` flagging from
   `usage.cost`, and one `audit.Entry` per call.
 
@@ -165,20 +166,20 @@ internal/capstring/              // rune-count text truncation
 internal/registry/               // the self-registering tool-plugin mechanism (see Plugin architecture)
 internal/xdg/                   // shared $XDG_DATA_HOME resolution (used by audit + credentials)
 internal/tools/
-  score/                        // jev_score
-  verify/                       // jev_verify
-  screen/                       // jev_screen
-  check/                        // jev_check
-  match/                        // jev_match
-  rerank/                       // jev_rerank
-  classify/                     // jev_classify
-  decide/                       // jev_decide
-  compare/                      // jev_compare
-  extract/                      // jev_extract
-  review/                       // jev_review
-  gate/                         // jev_gate (built on reviewcore, alongside review)
+  score/                        // score
+  verify/                       // verify
+  screen/                       // screen
+  check/                        // check
+  match/                        // match
+  rerank/                       // rerank
+  classify/                     // classify
+  decide/                       // decide
+  compare/                      // compare
+  extract/                      // extract
+  review/                       // review
+  gate/                         // gate (built on reviewcore, alongside review)
   reviewcore/                   // scoring/composite/action logic shared by review + gate
-  doctor/                       // jev_doctor
-  ask/                          // jev_ask
-  batch/                        // jev_batch (fans items out to other tools via registry.Lookup + Tool.Run)
+  doctor/                       // doctor
+  ask/                          // ask
+  batch/                        // batch (fans items out to other tools via registry.Lookup + Tool.Run)
 ```

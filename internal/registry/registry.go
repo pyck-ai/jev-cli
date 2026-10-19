@@ -94,14 +94,12 @@ type DepsProvider func() *Deps
 // cmd/jev/main.go needs to activate that tool in either of jev-cli's run modes,
 // without cmd/jev/main.go knowing anything about the tool itself.
 type Tool struct {
-	// Name is this tool's CLI subcommand name, e.g. "score" -- bare, no
-	// "jev_" prefix, matching its internal/tools/<name>/ package
-	// directory.
+	// Name is this tool's name, e.g. "score": the CLI subcommand name, the
+	// MCP tool name RegisterMCP registers (bare -- the MCP client adds its
+	// own server-name namespace), and the key used in
+	// config.Config.ToolModelOverrides and audit.Entry.Tool. It matches
+	// the internal/tools/<name>/ package directory.
 	Name string
-	// MCPName is this tool's MCP tool name, e.g. "jev_score" -- what
-	// RegisterMCP registers it as via mcp.AddTool, and the key used in
-	// config.Config.ToolModelOverrides and audit.Entry.Tool.
-	MCPName string
 	// Description is this tool's one-paragraph description, shared
 	// verbatim between its MCP tool registration (mcp.Tool.Description,
 	// set inside RegisterMCP) and, once RegisterCLI is populated, its CLI
@@ -129,7 +127,7 @@ type Tool struct {
 	// Run executes one invocation of this tool from raw JSON input (the
 	// same object an MCP client or `-j` would pass) and returns its output,
 	// its CLI exit code and any error. Build it with Runner. nil means the
-	// tool cannot be run through jev_batch (doctor, batch itself, and any
+	// tool cannot be run through batch (doctor, batch itself, and any
 	// tool not yet wired).
 	Run RunFunc
 }
@@ -215,11 +213,23 @@ func All() []Tool {
 	return tools
 }
 
-// Lookup returns the registered Tool whose CLI name ("decide") or MCP name
-// ("jev_decide") equals name.
+// LegacyPrefix is the "jev_" prefix MCP tool names used to carry
+// ("jev_decide"). It is no longer part of any name jev emits, but inputs
+// that name a tool still accept it.
+const LegacyPrefix = "jev_"
+
+// BareName trims surrounding space and one optional legacy "jev_" prefix:
+// both "jev_decide" and "decide" yield "decide".
+func BareName(name string) string {
+	return strings.TrimPrefix(strings.TrimSpace(name), LegacyPrefix)
+}
+
+// Lookup returns the registered Tool whose name ("decide") equals name; a
+// legacy "jev_" prefix ("jev_decide") is accepted too.
 func Lookup(name string) (Tool, bool) {
+	name = BareName(name)
 	for _, t := range tools {
-		if t.Name == name || t.MCPName == name {
+		if t.Name == name {
 			return t, true
 		}
 	}

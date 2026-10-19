@@ -199,7 +199,7 @@ func TestValidateInput_TooManyClaims(t *testing.T) {
 	}
 }
 
-// TestValidateInput_ErrorsExplainWhatIsExpected: agents calling jev_gate
+// TestValidateInput_ErrorsExplainWhatIsExpected: agents calling gate
 // over MCP only see the error text, so each validation error must say
 // what's wrong AND what's expected (field path, shape, example, or
 // limit/default) -- not just what's wrong.

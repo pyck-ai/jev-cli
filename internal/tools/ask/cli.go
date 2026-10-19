@@ -1,4 +1,4 @@
-// This file adds jev_ask's CLI subcommand (`jev ask ...`), built on top
+// This file adds ask's CLI subcommand (`jev ask ...`), built on top
 // of the same run core as the MCP handler (see ask.go).
 package ask
 
@@ -17,7 +17,7 @@ const cliShortDescription = "Escape hatch: ask arbitrary noul/choice/score quest
 
 // exitCode maps an AskOutput to the CLI's exit-code scheme: 2 if any
 // requested question's answer came back status="invalid_response" (see
-// AskAnswer.Status), else 0. Unlike jev_review/jev_gate, jev_ask has no
+// AskAnswer.Status), else 0. Unlike review/gate, ask has no
 // auto/review/escalate verdict tier of its own to map to exit 1 -- each
 // answer either parsed (ok) or it didn't (fail closed).
 func exitCode(out AskOutput) int {

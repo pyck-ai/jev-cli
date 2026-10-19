@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DefaultModel is the OpenRouter model slug used when none of the --model
@@ -233,9 +234,18 @@ func (c *Config) ForceModel(model string) {
 // tool_model_overrides[tool] if present and non-empty, else DefaultModel
 // (which already reflects JEV_CLI_MODEL, default_model, the built-in
 // default, or a ForceModel call; see applyEnvOverrides for the full chain).
+// The override key is the bare tool name ("score"); the legacy "jev_" form
+// ("jev_score") is accepted too, and the bare key wins if both are set.
 func (c Config) ModelForTool(tool string) string {
-	if m, ok := c.ToolModelOverrides[tool]; ok && m != "" {
-		return m
+	tool = strings.TrimPrefix(tool, legacyToolPrefix)
+	for _, key := range []string{tool, legacyToolPrefix + tool} {
+		if m, ok := c.ToolModelOverrides[key]; ok && m != "" {
+			return m
+		}
 	}
 	return c.DefaultModel
 }
+
+// legacyToolPrefix is the "jev_" prefix MCP tool names used to carry; it is
+// still accepted in tool_model_overrides keys.
+const legacyToolPrefix = "jev_"

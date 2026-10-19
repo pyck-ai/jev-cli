@@ -165,7 +165,7 @@ func TestCLI_ExitCode_InvalidResponse(t *testing.T) {
 }
 
 // TestCLI_StateFlagRequiresJSON documents --state's exact behavior for
-// jev_ask: AskInput.State is typed `any` (json kind Interface), which
+// ask: AskInput.State is typed `any` (json kind Interface), which
 // cliinput.Bind treats as a structured field (see isStructuredKind), so
 // its flag value must already be valid JSON -- a bare, unquoted word is
 // REJECTED, not treated as a literal string.

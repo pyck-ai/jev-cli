@@ -41,7 +41,7 @@ func TestSliceFieldsAreTypedArray(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("jev_decide not in tool list")
+	t.Fatal("decide not in tool list")
 }
 
 func TestVerdictFor(t *testing.T) {
@@ -72,12 +72,12 @@ func TestVerdictFor(t *testing.T) {
 }
 
 func TestParseResponseMultipleCalls(t *testing.T) {
-	body := `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_jev_decide","arguments":"{\"decision\":\"x\"}"}},{"function":{"name":"jev_jev_check","arguments":{"claim":"c"}}}]}}]}`
+	body := `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_decide","arguments":"{\"decision\":\"x\"}"}},{"function":{"name":"jev_check","arguments":{"claim":"c"}}}]}}]}`
 	obs, err := parseResponse([]byte(body), "jev_")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if obs.Tool != "decide" || obs.RawTool != "jev_jev_decide" || obs.Args["decision"] != "x" {
+	if obs.Tool != "decide" || obs.RawTool != "jev_decide" || obs.Args["decision"] != "x" {
 		t.Errorf("first-call fields changed: %+v", obs)
 	}
 	if len(obs.Calls) != 2 || obs.Calls[0].Tool != "decide" || obs.Calls[1].Tool != "check" || obs.Calls[1].Args["claim"] != "c" || obs.Calls[1].ArgsRaw == "" {
@@ -91,7 +91,7 @@ func TestParallelVerdict(t *testing.T) {
 	call := func(names ...string) []Call {
 		var cs []Call
 		for _, n := range names {
-			cs = append(cs, Call{Tool: n, RawTool: "jev_jev_" + n, Args: map[string]any{}})
+			cs = append(cs, Call{Tool: n, RawTool: "jev_" + n, Args: map[string]any{}})
 		}
 		return cs
 	}
@@ -123,7 +123,7 @@ func TestParallelVerdict(t *testing.T) {
 		"decide": {},
 		"check":  {"required": []any{"claim"}},
 	}
-	obs := Observation{Tool: "decide", RawTool: "jev_jev_decide", Args: map[string]any{}, Calls: call("decide", "check")}
+	obs := Observation{Tool: "decide", RawTool: "jev_decide", Args: map[string]any{}, Calls: call("decide", "check")}
 	tr := buildTrial(c, "m", 1, obs, nil, schemas)
 	if tr.Verdict != VerdictAcceptable || !tr.Acceptable || len(tr.Calls) != 2 || tr.Chosen != "decide" {
 		t.Errorf("trial = %+v", tr)
@@ -132,14 +132,14 @@ func TestParallelVerdict(t *testing.T) {
 		t.Errorf("schema = %v %v", tr.SchemaValid, tr.SchemaProblem)
 	}
 	// A single call stays unprefixed and carries no calls field.
-	one := buildTrial(c, "m", 1, Observation{Tool: "check", RawTool: "jev_jev_check", Args: map[string]any{}}, nil, schemas)
+	one := buildTrial(c, "m", 1, Observation{Tool: "check", RawTool: "jev_check", Args: map[string]any{}}, nil, schemas)
 	if one.Calls != nil || len(one.SchemaProblem) != 1 || one.SchemaProblem[0] != "missing required claim" {
 		t.Errorf("single call trial = %+v", one)
 	}
 	// Unknown tool in a later call is a problem.
-	obs = Observation{Tool: "decide", RawTool: "jev_jev_decide", Args: map[string]any{}, Calls: call("decide", "frob")}
+	obs = Observation{Tool: "decide", RawTool: "jev_decide", Args: map[string]any{}, Calls: call("decide", "frob")}
 	tr = buildTrial(c, "m", 1, obs, nil, schemas)
-	if tr.SchemaValid == nil || *tr.SchemaValid || tr.SchemaProblem[0] != "frob: unknown tool jev_jev_frob" {
+	if tr.SchemaValid == nil || *tr.SchemaValid || tr.SchemaProblem[0] != "frob: unknown tool jev_frob" {
 		t.Errorf("unknown second call: %v %v", tr.SchemaValid, tr.SchemaProblem)
 	}
 }
@@ -212,12 +212,12 @@ func TestValidateArgs(t *testing.T) {
 }
 
 func TestBareName(t *testing.T) {
-	for in, want := range map[string]string{"jev_jev_decide": "decide", "jev_decide": "decide", "decide": "decide"} {
+	for in, want := range map[string]string{"jev_decide": "decide", "decide": "decide"} {
 		if got := bareName(in, "jev_"); got != want {
 			t.Errorf("bareName(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if got := bareName("srv_jev_ask", "srv_"); got != "ask" {
+	if got := bareName("srv_ask", "srv_"); got != "ask" {
 		t.Errorf("custom prefix: got %q", got)
 	}
 }
@@ -239,16 +239,16 @@ func TestLoadToolsEveryRegisteredToolAppears(t *testing.T) {
 		t.Errorf("duplicate function names in %d functions", len(fns))
 	}
 	for _, rt := range reg {
-		f, ok := got["jev_"+rt.MCPName]
+		f, ok := got["jev_"+rt.Name]
 		if !ok {
-			t.Errorf("registered tool %s missing from tools/list (have %d functions)", rt.MCPName, len(fns))
+			t.Errorf("registered tool %s missing from tools/list (have %d functions)", rt.Name, len(fns))
 			continue
 		}
 		if f.Description != rt.Description {
-			t.Errorf("%s: description is not the live registry description", rt.MCPName)
+			t.Errorf("%s: description is not the live registry description", rt.Name)
 		}
 		if f.Parameters["type"] != "object" {
-			t.Errorf("%s: parameters.type = %v, want object", rt.MCPName, f.Parameters["type"])
+			t.Errorf("%s: parameters.type = %v, want object", rt.Name, f.Parameters["type"])
 		}
 	}
 	if len(fns) != len(reg) {
@@ -259,7 +259,7 @@ func TestLoadToolsEveryRegisteredToolAppears(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(fns2[0].Name, "x_jev_") {
+	if !strings.HasPrefix(fns2[0].Name, "x_") {
 		t.Errorf("custom prefix not applied: %s", fns2[0].Name)
 	}
 }
@@ -275,20 +275,20 @@ func TestParseResponse(t *testing.T) {
 	}{
 		{
 			name:     "string arguments",
-			body:     `{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"tool_calls":[{"function":{"name":"jev_jev_decide","arguments":"{\"decision\":\"x\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.0012}}`,
+			body:     `{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"tool_calls":[{"function":{"name":"jev_decide","arguments":"{\"decision\":\"x\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.0012}}`,
 			tool:     "decide",
 			wantArgs: "decision",
 			cost:     0.0012,
 		},
 		{
 			name:     "object arguments and extra reasoning fields",
-			body:     `{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"reasoning":"hm","tool_calls":[{"id":"a","function":{"name":"jev_jev_score","arguments":{"state":"s"}}}]}}]}`,
+			body:     `{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"reasoning":"hm","tool_calls":[{"id":"a","function":{"name":"jev_score","arguments":{"state":"s"}}}]}}]}`,
 			tool:     "score",
 			wantArgs: "state",
 		},
 		{
 			name: "first tool call wins",
-			body: `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_jev_check","arguments":"{}"}},{"function":{"name":"jev_jev_verify","arguments":"{}"}}]}}]}`,
+			body: `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_check","arguments":"{}"}},{"function":{"name":"jev_verify","arguments":"{}"}}]}}]}`,
 			tool: "check",
 		},
 		{
@@ -303,7 +303,7 @@ func TestParseResponse(t *testing.T) {
 		},
 		{
 			name: "malformed arguments keep the tool",
-			body: `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_jev_ask","arguments":"{not json"}}]}}]}`,
+			body: `{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_ask","arguments":"{not json"}}]}}]}`,
 			tool: "ask",
 		},
 		{name: "api error", body: `{"error":{"message":"bad key"}}`, wantErr: true},
@@ -381,12 +381,12 @@ func TestCallerRetryAndTemperatureFallback(t *testing.T) {
 			w.WriteHeader(400)
 			_, _ = w.Write([]byte(`{"error":{"message":"Unsupported value: temperature"}}`))
 		default:
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_jev_check","arguments":"{}"}}]}}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"jev_check","arguments":"{}"}}]}}]}`))
 		}
 	}))
 	defer srv.Close()
 	c := &Caller{HTTP: srv.Client(), Endpoint: Endpoint{BaseURL: srv.URL, APIKey: "k", Direct: true}, Prefix: "jev_", MaxTokens: 64, Retries: 2}
-	obs, err := c.Call(context.Background(), "m", "sys", "p", []Function{{Name: "jev_jev_check", Parameters: map[string]any{"type": "object"}}})
+	obs, err := c.Call(context.Background(), "m", "sys", "p", []Function{{Name: "jev_check", Parameters: map[string]any{"type": "object"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

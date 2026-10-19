@@ -1,4 +1,4 @@
-// This file adds jev_score's CLI subcommand (`jev score ...`), built on
+// This file adds score's CLI subcommand (`jev score ...`), built on
 // top of the same run core as the MCP handler (see score.go).
 package score
 

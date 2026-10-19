@@ -25,8 +25,8 @@ func TestLogger_Log_AppendsJSONLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "audit.jsonl")
 	l := NewLogger(path)
 
-	l.Log(Entry{Tool: "jev_score", Model: "m1", InputStateSHA256: HashState("a"), ScaleMin: 0, ScaleMax: 2, Status: "ok"})
-	l.Log(Entry{Tool: "jev_score", Model: "m1", InputStateSHA256: HashState("b"), ScaleMin: 0, ScaleMax: 2, Status: "ok"})
+	l.Log(Entry{Tool: "score", Model: "m1", InputStateSHA256: HashState("a"), ScaleMin: 0, ScaleMax: 2, Status: "ok"})
+	l.Log(Entry{Tool: "score", Model: "m1", InputStateSHA256: HashState("b"), ScaleMin: 0, ScaleMax: 2, Status: "ok"})
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestLogger_Log_NeverPanicsOnUnwritableDirectory(t *testing.T) {
 			t.Fatalf("Log panicked on a write failure: %v", r)
 		}
 	}()
-	l.Log(Entry{Tool: "jev_score", Status: "ok"})
+	l.Log(Entry{Tool: "score", Status: "ok"})
 }
 
 func TestDefaultPath_HonorsXDGDataHome(t *testing.T) {

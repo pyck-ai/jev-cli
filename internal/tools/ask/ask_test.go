@@ -190,7 +190,7 @@ func TestValidateInput(t *testing.T) {
 	}
 }
 
-// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling jev_ask
+// TestValidateInput_ErrorsExplainTheExpectedShape: agents calling ask
 // over MCP only see the error text, so each criteria error must say what
 // the right shape is, not just what was wrong.
 func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {

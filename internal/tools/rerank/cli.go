@@ -1,4 +1,4 @@
-// This file adds jev_rerank's CLI subcommand (`jev rerank ...`), built on
+// This file adds rerank's CLI subcommand (`jev rerank ...`), built on
 // top of the same run core as the MCP handler (see rerank.go).
 package rerank
 
@@ -20,10 +20,10 @@ import (
 const cliShortDescription = "Rank candidates by relevance to a query"
 
 // exitCode maps a RerankOutput to the CLI's exit-code scheme: 3
-// (hard-error) when Status != "ok", 0 otherwise. jev_rerank fails closed
+// (hard-error) when Status != "ok", 0 otherwise. rerank fails closed
 // at the WHOLE-CALL level (see package doc comment: one malformed
 // candidate answer invalidates the entire ranking, Ranked stays nil) --
-// there is no per-candidate review tier the way jev_classify/jev_compare
+// there is no per-candidate review tier the way classify/compare
 // have, so this is the same two-value case as internal/tools/score's
 // exitCode.
 func exitCode(out RerankOutput) int {

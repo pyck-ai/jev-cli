@@ -1,4 +1,4 @@
-// Package match implements the jev_match MCP tool: given a query and a
+// Package match implements the match MCP tool: given a query and a
 // list of candidates, picks the single best-matching candidate (and
 // reports whether any candidate actually answers the query at all), using
 // the configured SystemOne decision model's "choice" and "noul" question types, via
@@ -53,7 +53,7 @@ import (
 )
 
 // ToolNameMatch is the MCP tool name registered for MatchHandler.
-const ToolNameMatch = "jev_match"
+const ToolNameMatch = "match"
 
 // Caps named verbatim in the project brief.
 const (
@@ -96,7 +96,7 @@ type Candidate struct {
 	Text string `json:"text" jsonschema:"Candidate text; truncated at 2000 chars"`
 }
 
-// MatchInput is the jev_match tool's input schema.
+// MatchInput is the match tool's input schema.
 type MatchInput struct {
 	Query      string      `json:"query" jsonschema:"What to find the best match for"`
 	Candidates []Candidate `json:"candidates" jsonschema:"1-250 {id, text} candidates, unique ids"`
@@ -109,13 +109,13 @@ type TopMatch struct {
 	Probability float64 `json:"probability"`
 }
 
-// MatchOutput is the jev_match tool's output schema.
+// MatchOutput is the match tool's output schema.
 //
 // Callers MUST check Status == "ok" before trusting Top, Exists, or
 // ExistsVerdict: this tool's "pick" and "exists" answers are used together
 // to build one coherent recommendation, so if EITHER is malformed the
 // whole result is reported as Status == "invalid_response" (fail-closed at
-// the call level, since match -- unlike e.g. jev_check or jev_verify --
+// the call level, since match -- unlike e.g. check or verify --
 // isn't a batch of independent per-item judgments where one bad item
 // shouldn't taint the others).
 type MatchOutput struct {
@@ -131,7 +131,7 @@ type MatchOutput struct {
 	BudgetExceeded bool   `json:"budget_exceeded,omitempty"`
 }
 
-// MatchHandler implements the jev_match tool.
+// MatchHandler implements the match tool.
 type MatchHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -157,11 +157,10 @@ func NewMatchHandler(client *openrouter.Client, cfg config.Config, tracker *budg
 
 func init() {
 	description := "Find which of several TEXTS (docs, snippets, answers, records) best answers or fits a query, and " +
-		"whether any does (answered/partial/absent); returns top candidates with probabilities. Use jev_rerank " +
+		"whether any does (answered/partial/absent); returns top candidates with probabilities. Use rerank " +
 		"instead for a full ordering. Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "match",
-		MCPName:     ToolNameMatch,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewMatchHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -190,7 +189,7 @@ func (h *MatchHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ma
 	return nil, out, nil
 }
 
-// run is jev_match's transport-agnostic core: everything from input
+// run is match's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -204,7 +203,7 @@ func (h *MatchHandler) run(ctx context.Context, in MatchInput) (MatchOutput, err
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_match: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("match: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameMatch, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -249,7 +248,7 @@ func (h *MatchHandler) run(ctx context.Context, in MatchInput) (MatchOutput, err
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Candidates),
 		})
-		return MatchOutput{}, fmt.Errorf("jev_match: %w", callErr)
+		return MatchOutput{}, fmt.Errorf("match: %w", callErr)
 	}
 
 	out := MatchOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -347,25 +346,25 @@ func topMatches(probs map[string]float64, topK int) []TopMatch {
 // information to fix the call on the next try.
 func validateInput(in MatchInput) error {
 	if strings.TrimSpace(in.Query) == "" {
-		return fmt.Errorf("jev_match: query: must not be empty; provide the search query as a non-empty string, e.g. \"what is the refund policy\"")
+		return fmt.Errorf("match: query: must not be empty; provide the search query as a non-empty string, e.g. \"what is the refund policy\"")
 	}
 	if len(in.Candidates) == 0 {
-		return fmt.Errorf("jev_match: candidates: must not be empty; provide 1 to %d candidates as an array of {id, text} objects, e.g. [{\"id\": \"a\", \"text\": \"Refunds within 30 days.\"}]", maxCandidates)
+		return fmt.Errorf("match: candidates: must not be empty; provide 1 to %d candidates as an array of {id, text} objects, e.g. [{\"id\": \"a\", \"text\": \"Refunds within 30 days.\"}]", maxCandidates)
 	}
 	if len(in.Candidates) > maxCandidates {
-		return fmt.Errorf("jev_match: candidates: too many entries (%d), more than the maximum of %d; reduce the list to at most %d candidates", len(in.Candidates), maxCandidates, maxCandidates)
+		return fmt.Errorf("match: candidates: too many entries (%d), more than the maximum of %d; reduce the list to at most %d candidates", len(in.Candidates), maxCandidates, maxCandidates)
 	}
 	seen := make(map[string]bool, len(in.Candidates))
 	for i, c := range in.Candidates {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_match: candidates[%d].id: must not be empty; give this candidate a unique non-empty id, e.g. \"a\"", i)
+			return fmt.Errorf("match: candidates[%d].id: must not be empty; give this candidate a unique non-empty id, e.g. \"a\"", i)
 		}
 		if seen[c.ID] {
-			return fmt.Errorf("jev_match: candidates[%d].id: %q is a duplicate; every candidate must have a unique id", i, c.ID)
+			return fmt.Errorf("match: candidates[%d].id: %q is a duplicate; every candidate must have a unique id", i, c.ID)
 		}
 		seen[c.ID] = true
 		if strings.TrimSpace(c.Text) == "" {
-			return fmt.Errorf("jev_match: candidates[%d].text: must not be empty; provide the candidate's text content, e.g. \"Refunds within 30 days.\"", i)
+			return fmt.Errorf("match: candidates[%d].text: must not be empty; provide the candidate's text content, e.g. \"Refunds within 30 days.\"", i)
 		}
 	}
 	return nil

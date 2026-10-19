@@ -1,4 +1,4 @@
-// This file adds jev_match's CLI subcommand (`jev match ...`), built on
+// This file adds match's CLI subcommand (`jev match ...`), built on
 // top of the same run core as the MCP handler (see match.go).
 package match
 

@@ -95,13 +95,34 @@ func TestLoad_EnvModelOverridesDefaultModel(t *testing.T) {
 func TestModelForTool_ToolOverrideWinsOverDefault(t *testing.T) {
 	cfg := Default()
 	cfg.DefaultModel = "typesafe/jev-experimental" // simulating a JEV_CLI_MODEL override
-	cfg.ToolModelOverrides = map[string]string{"jev_score": "typesafe/jev-1.13"}
+	cfg.ToolModelOverrides = map[string]string{"score": "typesafe/jev-1.13"}
 
-	if got := cfg.ModelForTool("jev_score"); got != "typesafe/jev-1.13" {
-		t.Errorf(`ModelForTool("jev_score") = %q, want the tool-specific override "typesafe/jev-1.13" to win over DefaultModel`, got)
+	if got := cfg.ModelForTool("score"); got != "typesafe/jev-1.13" {
+		t.Errorf(`ModelForTool("score") = %q, want the tool-specific override "typesafe/jev-1.13" to win over DefaultModel`, got)
 	}
 	if got := cfg.ModelForTool("some_other_tool"); got != "typesafe/jev-experimental" {
 		t.Errorf(`ModelForTool("some_other_tool") = %q, want DefaultModel %q (no override present)`, got, cfg.DefaultModel)
+	}
+}
+
+// Override keys accept the bare tool name and the legacy jev_ form, for both
+// the key in the file and the name asked for; the bare key wins if both are set.
+func TestModelForTool_LegacyPrefixedKeysAndNames(t *testing.T) {
+	cfg := Default()
+	cfg.ToolModelOverrides = map[string]string{"jev_score": "legacy/model"}
+	for _, name := range []string{"score", "jev_score"} {
+		if got := cfg.ModelForTool(name); got != "legacy/model" {
+			t.Errorf("ModelForTool(%q) with a jev_score key = %q, want legacy/model", name, got)
+		}
+	}
+	cfg.ToolModelOverrides = map[string]string{"jev_score": "legacy/model", "score": "bare/model"}
+	for _, name := range []string{"score", "jev_score"} {
+		if got := cfg.ModelForTool(name); got != "bare/model" {
+			t.Errorf("ModelForTool(%q) with both keys = %q, want the bare key to win", name, got)
+		}
+	}
+	if got := cfg.ModelForTool("verify"); got != cfg.DefaultModel {
+		t.Errorf("ModelForTool(verify) = %q, want DefaultModel", got)
 	}
 }
 
@@ -222,7 +243,7 @@ func TestDefault_NoToolOverrides(t *testing.T) {
 }
 
 // TestLoad_EnvModelAppliesToEveryToolByDefault: with no per-tool override,
-// JEV_CLI_MODEL reaches every tool, jev_score included.
+// JEV_CLI_MODEL reaches every tool, score included.
 func TestLoad_EnvModelAppliesToEveryToolByDefault(t *testing.T) {
 	t.Setenv("JEV_CLI_CONFIG_PATH", filepath.Join(t.TempDir(), "does-not-exist.json"))
 	t.Setenv("JEV_CLI_MODEL", "liquid/d1")
@@ -231,7 +252,7 @@ func TestLoad_EnvModelAppliesToEveryToolByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	for _, tool := range []string{"jev_score", "jev_verify"} {
+	for _, tool := range []string{"score", "verify"} {
 		if got := cfg.ModelForTool(tool); got != "liquid/d1" {
 			t.Errorf("ModelForTool(%q) = %q, want env model %q", tool, got, "liquid/d1")
 		}
@@ -256,36 +277,36 @@ func TestModelPrecedence(t *testing.T) {
 		}
 		return cfg
 	}
-	const file = `{"default_model": "file/default", "tool_model_overrides": {"jev_score": "file/override"}}`
+	const file = `{"default_model": "file/default", "tool_model_overrides": {"score": "file/override"}}`
 
 	t.Run("built-in default", func(t *testing.T) {
 		cfg := load(t, `{}`, "")
-		if got := cfg.ModelForTool("jev_score"); got != DefaultModel {
+		if got := cfg.ModelForTool("score"); got != DefaultModel {
 			t.Errorf("got %q, want %q", got, DefaultModel)
 		}
 	})
 	t.Run("default_model beats built-in", func(t *testing.T) {
 		cfg := load(t, `{"default_model": "file/default"}`, "")
-		if got := cfg.ModelForTool("jev_verify"); got != "file/default" {
+		if got := cfg.ModelForTool("verify"); got != "file/default" {
 			t.Errorf("got %q, want file/default", got)
 		}
 	})
 	t.Run("env beats default_model", func(t *testing.T) {
 		cfg := load(t, file, "env/model")
-		if got := cfg.ModelForTool("jev_verify"); got != "env/model" {
+		if got := cfg.ModelForTool("verify"); got != "env/model" {
 			t.Errorf("got %q, want env/model", got)
 		}
 	})
 	t.Run("tool override beats env", func(t *testing.T) {
 		cfg := load(t, file, "env/model")
-		if got := cfg.ModelForTool("jev_score"); got != "file/override" {
+		if got := cfg.ModelForTool("score"); got != "file/override" {
 			t.Errorf("got %q, want file/override", got)
 		}
 	})
 	t.Run("flag beats tool override, env and default_model", func(t *testing.T) {
 		cfg := load(t, file, "env/model")
 		cfg.ForceModel("flag/model")
-		for _, tool := range []string{"jev_score", "jev_verify"} {
+		for _, tool := range []string{"score", "verify"} {
 			if got := cfg.ModelForTool(tool); got != "flag/model" {
 				t.Errorf("ModelForTool(%q) = %q, want flag/model", tool, got)
 			}
@@ -297,10 +318,10 @@ func TestModelPrecedence(t *testing.T) {
 	t.Run("empty flag is a no-op", func(t *testing.T) {
 		cfg := load(t, file, "env/model")
 		cfg.ForceModel("")
-		if got := cfg.ModelForTool("jev_score"); got != "file/override" {
+		if got := cfg.ModelForTool("score"); got != "file/override" {
 			t.Errorf("got %q, want file/override", got)
 		}
-		if got := cfg.ModelForTool("jev_verify"); got != "env/model" {
+		if got := cfg.ModelForTool("verify"); got != "env/model" {
 			t.Errorf("got %q, want env/model", got)
 		}
 	})

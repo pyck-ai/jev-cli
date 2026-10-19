@@ -321,7 +321,7 @@ func TestRun_ToolWithoutRunIsPerItemError(t *testing.T) {
 	h := NewBatchHandler(deps)
 	h.lookup = func(name string) (registry.Tool, bool) {
 		if name == "legacy" {
-			return registry.Tool{Name: "legacy", MCPName: "jev_legacy"}, true
+			return registry.Tool{Name: "legacy"}, true
 		}
 		return registry.Lookup(name)
 	}
@@ -404,7 +404,7 @@ func TestRun_AuditKeepsItemLinesPlusSummary(t *testing.T) {
 			summary = e
 		}
 	}
-	if counts["jev_decide"] != 1 || counts["jev_check"] != 1 || counts[ToolNameBatch] != 1 {
+	if counts["decide"] != 1 || counts["check"] != 1 || counts[ToolNameBatch] != 1 {
 		t.Errorf("audit lines by tool = %v, want one each (the invalid item never reaches its tool's audit)", counts)
 	}
 	if summary.ItemCount != 3 || summary.InvalidCount != 1 || summary.Status != StatusError || summary.CostUSD == nil {

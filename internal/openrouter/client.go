@@ -23,7 +23,7 @@ const (
 
 // Route is one target a Client can send to: the full SystemOne endpoint
 // URL and the bearer credential for it, plus descriptive fields for
-// jev_doctor. APIKey is deliberately excluded from JSON and from
+// doctor. APIKey is deliberately excluded from JSON and from
 // RouteInfo; nothing in this package prints it.
 type Route struct {
 	Name             string // RouteDirect or RouteProxy
@@ -35,7 +35,7 @@ type Route struct {
 }
 
 // RouteInfo is the key-free view of the currently active route, for
-// jev_doctor and logs.
+// doctor and logs.
 type RouteInfo struct {
 	Route            string
 	Why              string
@@ -177,7 +177,7 @@ func (e *APIError) Error() string {
 
 // Score submits a single "score"-type SystemOne question for the given
 // model/state/instructions/criteria and returns the parsed response
-// envelope. It is a thin wrapper around Ask, preserving jev_score's
+// envelope. It is a thin wrapper around Ask, preserving score's
 // original, pre-generalization method signature and wire format exactly
 // (see this package's doc comment, "Generalization beyond \"score\"").
 //

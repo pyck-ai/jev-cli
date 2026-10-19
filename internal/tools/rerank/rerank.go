@@ -1,4 +1,4 @@
-// Package rerank implements the jev_rerank MCP tool: scores every
+// Package rerank implements the rerank MCP tool: scores every
 // candidate's relevance to a query independently and returns them sorted
 // descending, using the configured SystemOne decision model's "noul" question type,
 // via OpenRouter's SystemOne API.
@@ -27,7 +27,7 @@
 // whole call reports status: invalid_response rather than silently
 // treating a missing score as zero." Unlike internal/tools/check or
 // internal/tools/verify (where one bad item doesn't taint the others),
-// jev_rerank's whole point is a relative ORDERING across all candidates --
+// rerank's whole point is a relative ORDERING across all candidates --
 // silently scoring one malformed candidate as 0.0 could badly distort
 // that ordering (a candidate that was actually highly relevant, but whose
 // answer merely failed to parse, would look like the least relevant one)
@@ -68,7 +68,7 @@ import (
 )
 
 // ToolNameRerank is the MCP tool name registered for RerankHandler.
-const ToolNameRerank = "jev_rerank"
+const ToolNameRerank = "rerank"
 
 // Caps named verbatim in the project brief.
 const (
@@ -97,7 +97,7 @@ type Candidate struct {
 	Text string `json:"text" jsonschema:"Candidate text"`
 }
 
-// RerankInput is the jev_rerank tool's input schema.
+// RerankInput is the rerank tool's input schema.
 type RerankInput struct {
 	Query      string      `json:"query" jsonschema:"What candidates are ranked against"`
 	Candidates []Candidate `json:"candidates" jsonschema:"1-250 {id, text} candidates; combined text at most 100,000 chars"`
@@ -111,7 +111,7 @@ type Ranked struct {
 	Relevance float64 `json:"relevance"`
 }
 
-// RerankOutput is the jev_rerank tool's output schema.
+// RerankOutput is the rerank tool's output schema.
 //
 // Callers MUST check Status == "ok" before trusting Ranked: if ANY
 // candidate's answer was malformed, Ranked is nil and Status is
@@ -126,7 +126,7 @@ type RerankOutput struct {
 	BudgetExceeded bool     `json:"budget_exceeded,omitempty"`
 }
 
-// RerankHandler implements the jev_rerank tool.
+// RerankHandler implements the rerank tool.
 type RerankHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -153,11 +153,10 @@ func NewRerankHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 func init() {
 	description := "Order 1-250 texts (docs, snippets, results) by relevance to a search query; returns every " +
 		"candidate sorted descending with relevance. Not for ranking the options or answers of a question to pick " +
-		"the best (that is a decision: jev_decide, or jev_batch for several questions). Use jev_match instead for just the single best plus whether anything matches. " +
+		"the best (that is a decision: decide, or batch for several questions). Use match instead for just the single best plus whether anything matches. " +
 		"Fails closed: any bad answer gives status=invalid_response and no ranking."
 	registry.Register(registry.Tool{
 		Name:        "rerank",
-		MCPName:     ToolNameRerank,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewRerankHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -186,7 +185,7 @@ func (h *RerankHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in R
 	return nil, out, nil
 }
 
-// run is jev_rerank's transport-agnostic core: everything from input
+// run is rerank's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -200,7 +199,7 @@ func (h *RerankHandler) run(ctx context.Context, in RerankInput) (RerankOutput, 
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_rerank: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("rerank: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameRerank, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -234,7 +233,7 @@ func (h *RerankHandler) run(ctx context.Context, in RerankInput) (RerankOutput, 
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Candidates),
 		})
-		return RerankOutput{}, fmt.Errorf("jev_rerank: %w", callErr)
+		return RerankOutput{}, fmt.Errorf("rerank: %w", callErr)
 	}
 
 	out := RerankOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -307,31 +306,31 @@ func candKey(i int) string { return "cand" + strconv.Itoa(i) }
 // truncates).
 func validateInput(in RerankInput) error {
 	if strings.TrimSpace(in.Query) == "" {
-		return fmt.Errorf("jev_rerank: query must not be empty; provide the text every candidate is scored for relevance against, e.g. \"vendor security posture\"")
+		return fmt.Errorf("rerank: query must not be empty; provide the text every candidate is scored for relevance against, e.g. \"vendor security posture\"")
 	}
 	if len(in.Candidates) == 0 {
-		return fmt.Errorf("jev_rerank: candidates must not be empty; provide an array of 1-250 {\"id\": <string>, \"text\": <string>} objects, e.g. [{\"id\": \"a\", \"text\": \"...\"}]")
+		return fmt.Errorf("rerank: candidates must not be empty; provide an array of 1-250 {\"id\": <string>, \"text\": <string>} objects, e.g. [{\"id\": \"a\", \"text\": \"...\"}]")
 	}
 	if len(in.Candidates) > maxCandidates {
-		return fmt.Errorf("jev_rerank: candidates has %d entries, exceeding the max of %d; send fewer candidates or split the call", len(in.Candidates), maxCandidates)
+		return fmt.Errorf("rerank: candidates has %d entries, exceeding the max of %d; send fewer candidates or split the call", len(in.Candidates), maxCandidates)
 	}
 	seen := make(map[string]bool, len(in.Candidates))
 	aggregate := 0
 	for i, c := range in.Candidates {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_rerank: candidates[%d].id must not be empty; each candidate needs a unique non-empty string id, e.g. \"a\"", i)
+			return fmt.Errorf("rerank: candidates[%d].id must not be empty; each candidate needs a unique non-empty string id, e.g. \"a\"", i)
 		}
 		if seen[c.ID] {
-			return fmt.Errorf("jev_rerank: candidates[%d].id: %q is already used by another candidate; every candidate needs a unique id", i, c.ID)
+			return fmt.Errorf("rerank: candidates[%d].id: %q is already used by another candidate; every candidate needs a unique id", i, c.ID)
 		}
 		seen[c.ID] = true
 		if strings.TrimSpace(c.Text) == "" {
-			return fmt.Errorf("jev_rerank: candidates[%d].text must not be empty; provide this candidate's text content to compare against query", i)
+			return fmt.Errorf("rerank: candidates[%d].text must not be empty; provide this candidate's text content to compare against query", i)
 		}
 		aggregate += len([]rune(c.Text))
 	}
 	if aggregate > maxAggregateChars {
-		return fmt.Errorf("jev_rerank: candidates[].text: aggregate length across all candidates is %d characters, exceeding the %d character cap; shorten candidates' text or send fewer candidates", aggregate, maxAggregateChars)
+		return fmt.Errorf("rerank: candidates[].text: aggregate length across all candidates is %d characters, exceeding the %d character cap; shorten candidates' text or send fewer candidates", aggregate, maxAggregateChars)
 	}
 	return nil
 }

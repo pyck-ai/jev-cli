@@ -1,4 +1,4 @@
-// This file adds jev_compare's CLI subcommand (`jev compare ...`), built
+// This file adds compare's CLI subcommand (`jev compare ...`), built
 // on top of the same run core as the MCP handler (see compare.go).
 package compare
 

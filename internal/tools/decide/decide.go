@@ -1,4 +1,4 @@
-// Package decide implements the jev_decide MCP tool: recommends which of
+// Package decide implements the decide MCP tool: recommends which of
 // several candidate options best satisfies a decision (given evidence and
 // priorities), optionally checking a list of requirements against every
 // candidate, using the configured SystemOne decision model's "choice" question
@@ -42,14 +42,14 @@
 // 2026-09-26 (see internal/openrouter's package doc comment) -- not
 // independently re-verified here (no OPENROUTER_API_KEY was available in
 // this implementation environment). Unlike most of this tool suite,
-// jev_decide's own project brief names NO confidence/auto-accept
+// decide's own project brief names NO confidence/auto-accept
 // threshold for its Recommendation at all (only "recommendation{selected,
 // escaped, confidence, probabilities}" -- no "action" or "decision"
 // field) -- so, deliberately, this implementation adds none: Recommendation
 // exposes Confidence/Probabilities for the CALLER to interpret, rather
 // than inventing an auto_accept-driven verdict field the brief didn't ask
 // for. maxRequirements (20) is this implementation's own invented safety
-// cap: the brief did not state one (unlike jev_gate's explicit
+// cap: the brief did not state one (unlike gate's explicit
 // "claims []string (cap 16)" for a similar list).
 package decide
 
@@ -72,7 +72,7 @@ import (
 )
 
 // ToolNameDecide is the MCP tool name registered for DecideHandler.
-const ToolNameDecide = "jev_decide"
+const ToolNameDecide = "decide"
 
 // Candidate count bounds, verbatim from the project brief
 // ("candidates []{id, description} (2-6)").
@@ -138,7 +138,7 @@ type Candidate struct {
 	Description string `json:"description" jsonschema:"Option described well enough to evaluate."`
 }
 
-// DecideInput is the jev_decide tool's input schema.
+// DecideInput is the decide tool's input schema.
 type DecideInput struct {
 	Decision     string      `json:"decision" jsonschema:"The decision to make."`
 	Evidence     string      `json:"evidence" jsonschema:"Evidence relevant to the decision."`
@@ -152,7 +152,7 @@ type DecideInput struct {
 	EscapeHatches *bool `json:"escape_hatches,omitempty" jsonschema:"Offer ask_user/investigate/none as extra options. Default true."`
 }
 
-// Recommendation is jev_decide's main recommendation.
+// Recommendation is decide's main recommendation.
 //
 // Callers MUST check Status == "ok" before trusting Selected, Escaped,
 // Confidence, or Probabilities: when Status == "invalid_response" those
@@ -176,7 +176,7 @@ type Check struct {
 	Answer      string `json:"answer"`
 }
 
-// DecideOutput is the jev_decide tool's output schema.
+// DecideOutput is the decide tool's output schema.
 type DecideOutput struct {
 	Recommendation Recommendation `json:"recommendation"`
 	Checks         []Check        `json:"checks,omitempty"`
@@ -186,7 +186,7 @@ type DecideOutput struct {
 	BudgetExceeded bool           `json:"budget_exceeded,omitempty"`
 }
 
-// DecideHandler implements the jev_decide tool.
+// DecideHandler implements the decide tool.
 type DecideHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -213,12 +213,11 @@ func NewDecideHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 func init() {
 	description := "Choose a course of action among 2-6 options for one decision (which fix, approach, design or " +
 		"vendor is best), with a probability per option; call this instead of judging yourself. " +
-		"For several separate decisions, or a decision plus fact checks, use jev_batch. " +
-		"For which text best answers a query use jev_match; for many items into fixed classes use " +
-		"jev_classify. Fails closed: bad answers are status=invalid_response, never guessed."
+		"For several separate decisions, or a decision plus fact checks, use batch. " +
+		"For which text best answers a query use match; for many items into fixed classes use " +
+		"classify. Fails closed: bad answers are status=invalid_response, never guessed."
 	registry.Register(registry.Tool{
 		Name:        "decide",
-		MCPName:     ToolNameDecide,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewDecideHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -247,7 +246,7 @@ func (h *DecideHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 	return nil, out, nil
 }
 
-// run is jev_decide's transport-agnostic core: everything from input
+// run is decide's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -266,7 +265,7 @@ func (h *DecideHandler) run(ctx context.Context, in DecideInput) (DecideOutput, 
 	itemCount := 1 + len(in.Requirements)*len(in.Candidates)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_decide: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("decide: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameDecide, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -325,7 +324,7 @@ func (h *DecideHandler) run(ctx context.Context, in DecideInput) (DecideOutput, 
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: itemCount,
 		})
-		return DecideOutput{}, fmt.Errorf("jev_decide: %w", callErr)
+		return DecideOutput{}, fmt.Errorf("decide: %w", callErr)
 	}
 
 	out := DecideOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -401,39 +400,39 @@ func checkKey(requirementIndex int, candidateID string) string {
 // budget or making a network call.
 func validateInput(in DecideInput) error {
 	if strings.TrimSpace(in.Decision) == "" {
-		return fmt.Errorf("jev_decide: decision must not be empty; describe the decision to be made, e.g. \"which vendor to pick\"")
+		return fmt.Errorf("decide: decision must not be empty; describe the decision to be made, e.g. \"which vendor to pick\"")
 	}
 	if strings.TrimSpace(in.Evidence) == "" {
-		return fmt.Errorf("jev_decide: evidence must not be empty; provide the evidence relevant to the decision")
+		return fmt.Errorf("decide: evidence must not be empty; provide the evidence relevant to the decision")
 	}
 	if strings.TrimSpace(in.Priorities) == "" {
-		return fmt.Errorf("jev_decide: priorities must not be empty; describe the priorities/tradeoffs that should guide the decision")
+		return fmt.Errorf("decide: priorities must not be empty; describe the priorities/tradeoffs that should guide the decision")
 	}
 	if len(in.Candidates) < minCandidates || len(in.Candidates) > maxCandidates {
-		return fmt.Errorf("jev_decide: candidates has %d entries; provide between %d and %d {\"id\": <string>, \"description\": <string>} objects, e.g. [{\"id\": \"a\", \"description\": \"Vendor A\"}, {\"id\": \"b\", \"description\": \"Vendor B\"}]", len(in.Candidates), minCandidates, maxCandidates)
+		return fmt.Errorf("decide: candidates has %d entries; provide between %d and %d {\"id\": <string>, \"description\": <string>} objects, e.g. [{\"id\": \"a\", \"description\": \"Vendor A\"}, {\"id\": \"b\", \"description\": \"Vendor B\"}]", len(in.Candidates), minCandidates, maxCandidates)
 	}
 	seen := make(map[string]bool, len(in.Candidates))
 	for i, c := range in.Candidates {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_decide: candidates[%d].id must not be empty; each candidate needs a unique non-empty string id, e.g. \"a\"", i)
+			return fmt.Errorf("decide: candidates[%d].id must not be empty; each candidate needs a unique non-empty string id, e.g. \"a\"", i)
 		}
 		if escapeHatchIDs[c.ID] {
-			return fmt.Errorf("jev_decide: candidates[%d].id: %q is reserved for an escape hatch (ask_user, investigate, none) and cannot be used as a candidate id; choose a different id", i, c.ID)
+			return fmt.Errorf("decide: candidates[%d].id: %q is reserved for an escape hatch (ask_user, investigate, none) and cannot be used as a candidate id; choose a different id", i, c.ID)
 		}
 		if seen[c.ID] {
-			return fmt.Errorf("jev_decide: candidates[%d].id: %q is already used by another candidate; every candidate needs a unique id", i, c.ID)
+			return fmt.Errorf("decide: candidates[%d].id: %q is already used by another candidate; every candidate needs a unique id", i, c.ID)
 		}
 		seen[c.ID] = true
 		if strings.TrimSpace(c.Description) == "" {
-			return fmt.Errorf("jev_decide: candidates[%d].description must not be empty; describe this candidate option, e.g. \"Vendor A\"", i)
+			return fmt.Errorf("decide: candidates[%d].description must not be empty; describe this candidate option, e.g. \"Vendor A\"", i)
 		}
 	}
 	if len(in.Requirements) > maxRequirements {
-		return fmt.Errorf("jev_decide: requirements has %d entries, exceeding the max of %d; check fewer requirements per call", len(in.Requirements), maxRequirements)
+		return fmt.Errorf("decide: requirements has %d entries, exceeding the max of %d; check fewer requirements per call", len(in.Requirements), maxRequirements)
 	}
 	for i, r := range in.Requirements {
 		if strings.TrimSpace(r) == "" {
-			return fmt.Errorf("jev_decide: requirements[%d] must not be empty; each requirement is a plain string checked against every candidate, e.g. \"must support SSO\"", i)
+			return fmt.Errorf("decide: requirements[%d] must not be empty; each requirement is a plain string checked against every candidate, e.g. \"must support SSO\"", i)
 		}
 	}
 	return nil
