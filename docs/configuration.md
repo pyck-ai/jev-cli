@@ -30,7 +30,7 @@ both. Implemented in `internal/route`; the proxy is preferred when present.
 | `PYCKLLM_API_KEY` | LiteLLM virtual key. Env wins over config `proxy_api_key`. |
 | `PYCKLLM_BASE_URL` | Proxy base root. Env wins over config `proxy_base_url`. |
 
-`jev doctor` / `jev_doctor` report `route`, `route_why` (probe result),
+`jev doctor` / `doctor` report `route`, `route_why` (probe result),
 `base_url` and `credential_source` (`env PYCKLLM_API_KEY`, `config
 proxy_api_key`, `env OPENROUTER_API_KEY`, `opencode auth store at <path>`),
 never a key. Startup logs `jev: route=... credential from ...` on stderr.
@@ -73,9 +73,9 @@ of which source is used, the resolved key is never read from jev-cli's own
 config file below, never logged, and never included in an error message; a
 startup log line on stderr does say *which source* was used (e.g. `using
 OpenRouter key from env` or `using OpenRouter key from opencode auth store
-at <path>`), for debugging, but never the key value itself. `jev_doctor`
+at <path>`), for debugging, but never the key value itself. `doctor`
 also reports this same source string, per-call, as part of its
-configuration snapshot (see [`jev_doctor`](tool-reference.md#the-jev_doctor-tool)).
+configuration snapshot (see [`doctor`](tool-reference.md#the-doctor-tool)).
 
 ## Config file (optional)
 
@@ -106,7 +106,7 @@ as-is. If present, any field you omit keeps its default value.
 | Field | Meaning |
 |---|---|
 | `default_model` | OpenRouter model slug used when a tool has no entry in `tool_model_overrides`. Built-in default `~typesafe/jev-latest`. See [Models](#models). |
-| `tool_model_overrides` | Per-tool model slug overrides, keyed by tool name (any of the 15 tool names, e.g. `jev_review`, `jev_gate`, ...). Default empty (no tool is pinned). Example: `{"jev_review": "typesafe/jev-1.13"}`. |
+| `tool_model_overrides` | Per-tool model slug overrides, keyed by tool name (any of the 15 tool names, e.g. `review`, `gate`, ...). Default empty (no tool is pinned). Example: `{"review": "typesafe/jev-1.13"}`. The old `jev_`-prefixed form of a key (`jev_review`) is accepted too; a bare key wins if both are set. |
 | `budget.max_usd_per_call` | Per-call cost cap in USD. `<= 0` means unlimited. See [Budget enforcement](#budget-enforcement). |
 | `budget.max_usd_per_session` | Cumulative cost cap in USD for this server process's lifetime. `<= 0` means unlimited. |
 | `retry.max_attempts` | Total HTTP attempts per tool call (initial attempt + retries). |
@@ -205,7 +205,7 @@ Every line has `ts`, `kind`, `session`. `call_id` ties a `tool_call` to its N `s
 
 Limits: CLI `tool_call` records carry the subcommand and argv only (written before the tool runs, since tools `os.Exit` with the verdict code), no output or latency; the CLI's output is in the `systemone` `response`. The guard wrapper records vetoes but the guard's learned-limit behavior is unchanged.
 
-Analyze: `jev record summarize <file-or-dir>` prints calls, share, errors, error rate and average latency per tool (CLI `check` and MCP `jev_check` count as one) and per model, plus MCP clients. Or with jq:
+Analyze: `jev record summarize <file-or-dir>` prints calls, share, errors, error rate and average latency per tool (CLI `check` and MCP `check` count as one) and per model, plus MCP clients. Or with jq:
 
 ```sh
 jq -r 'select(.kind=="tool_call") | .tool' <dir>/*.jsonl | sort | uniq -c | sort -rn
@@ -220,23 +220,23 @@ Every tool call appends one JSON line to
 `$XDG_DATA_HOME/jev-cli/audit.jsonl` (falling back to
 `~/.local/share/jev-cli/audit.jsonl` when `XDG_DATA_HOME` is unset). Parent
 directories are created automatically. The judged input is **never** stored
-verbatim: `jev_score` (whose input is a single `state` string) hashes that
+verbatim: `score` (whose input is a single `state` string) hashes that
 string directly (`input_state_sha256`); every other tool hashes its whole
 typed input struct instead (`internal/audit.HashValue`), so the digest still
 changes with any part of a multi-field request even though there's no single
-"state" string for those tools. Example line (`jev_score`):
+"state" string for those tools. Example line (`score`):
 
 ```json
-{"timestamp":"2026-09-26T18:00:00Z","tool":"jev_score","model":"typesafe/jev-1.13-20260917","input_state_sha256":"a94a8fe5...","scale_min":0,"scale_max":2,"score":1.99,"confidence":0.99,"status":"ok","usage":{"input_tokens":476,"output_tokens":70},"cost_usd":0.000019992,"latency_ms":312}
+{"timestamp":"2026-09-26T18:00:00Z","tool":"score","model":"typesafe/jev-1.13-20260917","input_state_sha256":"a94a8fe5...","scale_min":0,"scale_max":2,"score":1.99,"confidence":0.99,"status":"ok","usage":{"input_tokens":476,"output_tokens":70},"cost_usd":0.000019992,"latency_ms":312}
 ```
 
 (`budget_exceeded` is only present, as `true`, when that call's cost exceeded `max_usd_per_call` — it's omitted, not written as `false`, in the common case shown above.)
 
 For tools that ask more than one named SystemOne question per call
-(`jev_verify`'s claims, `jev_check`'s propositions, `jev_classify`'s items,
-`jev_rerank`'s candidates, `jev_review`/`jev_gate`'s five rubrics/claims,
-`jev_compare`'s aspects, `jev_screen`'s up-to-three signals, `jev_ask`'s
-questions, and `jev_decide`'s requirement checks), the audit entry's
+(`verify`'s claims, `check`'s propositions, `classify`'s items,
+`rerank`'s candidates, `review`/`gate`'s five rubrics/claims,
+`compare`'s aspects, `screen`'s up-to-three signals, `ask`'s
+questions, and `decide`'s requirement checks), the audit entry's
 `item_count`/`invalid_count` fields report how many named questions that one
 call carried and how many came back `invalid_response`. `status` follows one
 consistent rule across every tool in this codebase:
@@ -260,9 +260,9 @@ fail the tool call itself.
 tool: the server tracks exact cumulative spend (from OpenRouter's own
 reported `usage.cost`) across every completed call this process has made,
 and refuses a new call outright once that running total already meets or
-exceeds the cap. (`jev_doctor` is the one exception to "refusal is a tool
+exceeds the cap. (`doctor` is the one exception to "refusal is a tool
 error": it reports the refusal as `reachable: false` instead — see
-[`jev_doctor`](tool-reference.md#the-jev_doctor-tool).)
+[`doctor`](tool-reference.md#the-doctor-tool).)
 
 `max_usd_per_call` can only be enforced **after** the fact: OpenRouter only
 reports a call's actual cost in its response (see

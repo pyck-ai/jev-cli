@@ -154,7 +154,7 @@ func TestValidateInput(t *testing.T) {
 }
 
 // TestValidateInput_ErrorsExplainWhatIsExpected: agents calling
-// jev_review over MCP only see the error text, so each validation error
+// review over MCP only see the error text, so each validation error
 // must say what's wrong AND what's expected (field path, range, or
 // default) -- not just what's wrong.
 func TestValidateInput_ErrorsExplainWhatIsExpected(t *testing.T) {

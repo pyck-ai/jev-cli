@@ -1,4 +1,4 @@
-// This file adds jev_batch's CLI subcommand (`jev batch ...`), built on the
+// This file adds batch's CLI subcommand (`jev batch ...`), built on the
 // same run core as the MCP handler (see batch.go).
 package batch
 

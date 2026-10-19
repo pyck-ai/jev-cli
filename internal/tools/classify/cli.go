@@ -1,4 +1,4 @@
-// This file adds jev_classify's CLI subcommand (`jev classify ...`),
+// This file adds classify's CLI subcommand (`jev classify ...`),
 // built on top of the same run core as the MCP handler (see
 // classify.go).
 package classify
@@ -26,8 +26,8 @@ const cliShortDescription = "Classify items into a fixed set of classes"
 // is "invalid_response" (see classify.go's run), so this single check
 // covers both "the model's answer for this item was malformed" and
 // "the model answered but confidence/margin didn't clear the auto-accept
-// bar" -- 0 otherwise. jev_classify has no whole-call failure state
-// distinct from its per-item Status/Decision (unlike jev_rerank), so
+// bar" -- 0 otherwise. classify has no whole-call failure state
+// distinct from its per-item Status/Decision (unlike rerank), so
 // there is no 2 or 3 tier here.
 func exitCode(out ClassifyOutput) int {
 	for _, r := range out.Results {

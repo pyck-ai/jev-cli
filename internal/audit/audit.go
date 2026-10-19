@@ -1,5 +1,5 @@
 // Package audit implements the append-only JSONL audit log written for
-// every jev_score tool call.
+// every score tool call.
 //
 // The judged `state` text itself is never written to the log verbatim: only
 // its SHA-256 hex digest is recorded (see Entry.InputStateSHA256), both to
@@ -62,13 +62,13 @@ type Entry struct {
 	Error          string `json:"error,omitempty"`
 	// ItemCount and InvalidCount are additions for tools added after the
 	// plugin-architecture refactor that batch more than one question into
-	// a single call (jev_verify's claims, jev_check's propositions,
-	// jev_rerank/jev_classify's candidates/items, etc.): ItemCount is how
+	// a single call (verify's claims, check's propositions,
+	// rerank/classify's candidates/items, etc.): ItemCount is how
 	// many sub-items/questions this one call carried, and InvalidCount is
 	// how many of them came back invalid_response (fail-closed at the
 	// item level) even though the call itself (Status) succeeded. Both
 	// are omitted (as 0) for single-question tools/calls where they are
-	// not meaningful -- including every jev_score audit entry, which
+	// not meaningful -- including every score audit entry, which
 	// never sets either field and therefore serializes identically to
 	// before this addition.
 	ItemCount    int `json:"item_count,omitempty"`
@@ -163,7 +163,7 @@ func HashState(state string) string {
 // returns HashState of that JSON text. Added for the batch of tools built
 // on top of the self-registering plugin architecture (see
 // internal/registry), each of which has a multi-field input struct rather
-// than jev_score's single State string; jev_score itself continues to
+// than score's single State string; score itself continues to
 // call HashState(in.State) directly (a different, pre-existing digest)
 // and is unaffected by this addition.
 //

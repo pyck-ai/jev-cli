@@ -25,7 +25,7 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/tools/score"
 )
 
-// TestEndToEnd_MCPWireProtocol drives the jev_score tool through a real MCP
+// TestEndToEnd_MCPWireProtocol drives the score tool through a real MCP
 // client/server session (in-memory transport, but still real JSON-RPC
 // framing and JSON marshal/unmarshal on both ends -- see
 // mcp.NewInMemoryTransports), against a fake OpenRouter SystemOne server.
@@ -45,8 +45,8 @@ import (
 // It also, incidentally, exercises the real registry/blank-import plugin
 // wiring end to end (newServer below loops over registry.All() exactly as
 // main() does): every tool package main.go blank-imports is registered
-// against the server this test drives, not just jev_score, though only
-// jev_score is actually called here.
+// against the server this test drives, not just score, though only
+// score is actually called here.
 func TestEndToEnd_MCPWireProtocol(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -173,7 +173,7 @@ func TestEndToEnd_MCPWireProtocol(t *testing.T) {
 // the self-registering plugin architecture itself (see internal/registry's
 // package doc comment): it lists every tool newServer actually registered
 // against a real MCP server/client session and confirms it's exactly the
-// expected 14-tool roster (jev_score plus the 13 tools added on top of the
+// expected 14-tool roster (score plus the 13 tools added on top of the
 // plugin architecture), with no duplicate names. mcp.Server.AddTool's own
 // documented behavior for a name collision is to silently REPLACE the
 // earlier tool, not error or panic -- so this test, not just a successful
@@ -209,9 +209,9 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 	}
 
 	want := []string{
-		"jev_ask", "jev_batch", "jev_check", "jev_classify", "jev_compare", "jev_decide",
-		"jev_doctor", "jev_extract", "jev_gate", "jev_match", "jev_rerank",
-		"jev_review", "jev_score", "jev_screen", "jev_verify",
+		"ask", "batch", "check", "classify", "compare", "decide",
+		"doctor", "extract", "gate", "match", "rerank",
+		"review", "score", "screen", "verify",
 	}
 
 	seen := make(map[string]int, len(res.Tools))
@@ -226,6 +226,11 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 			t.Errorf("expected exactly 1 tool named %q, got %d", name, seen[name])
 		}
 	}
+	for _, tool := range res.Tools {
+		if strings.HasPrefix(tool.Name, "jev_") {
+			t.Errorf("MCP tool %q carries a jev_ prefix; the client namespaces tools with the server name", tool.Name)
+		}
+	}
 	if len(res.Tools) != len(want) {
 		gotNames := make([]string, len(res.Tools))
 		for i, tool := range res.Tools {
@@ -235,7 +240,7 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 	}
 }
 
-// TestEveryToolExceptDoctorAndBatchHasRun is the tripwire that keeps jev_batch
+// TestEveryToolExceptDoctorAndBatchHasRun is the tripwire that keeps batch
 // complete: a new tool that forgets its `Run:` line would silently be
 // unbatchable. doctor is not a judgment and batch cannot nest.
 func TestEveryToolExceptDoctorAndBatchHasRun(t *testing.T) {
@@ -430,8 +435,8 @@ func TestNewServer_OnlySelectedTools(t *testing.T) {
 		got = append(got, tool.Name)
 	}
 	slices.Sort(got)
-	if !slices.Equal(got, []string{"jev_check", "jev_verify"}) {
-		t.Errorf("tools/list = %v, want [jev_check jev_verify]", got)
+	if !slices.Equal(got, []string{"check", "verify"}) {
+		t.Errorf("tools/list = %v, want [check verify]", got)
 	}
 }
 
@@ -473,7 +478,7 @@ func TestRootCmd_ModelFlagIsPersistentAndReachesDeps(t *testing.T) {
 		root := newRootCmd(func(model string) *registry.Deps {
 			got = model
 			cfg = config.Default()
-			cfg.ToolModelOverrides = map[string]string{"jev_score": "typesafe/jev-1.13"}
+			cfg.ToolModelOverrides = map[string]string{"score": "typesafe/jev-1.13"}
 			cfg.ForceModel(model)
 			panic(stop{}) // deps are built lazily, at tool run time; end the run here
 		}, func([]registry.Tool, string) {})
@@ -493,8 +498,8 @@ func TestRootCmd_ModelFlagIsPersistentAndReachesDeps(t *testing.T) {
 		if got != "cloudflare/clef" {
 			t.Fatalf("deps builder model = %q, want %q (score may have failed before building deps)", got, "cloudflare/clef")
 		}
-		if m := cfg.ModelForTool("jev_score"); m != "cloudflare/clef" {
-			t.Errorf("ModelForTool(jev_score) = %q, want the --model value to beat tool_model_overrides", m)
+		if m := cfg.ModelForTool("score"); m != "cloudflare/clef" {
+			t.Errorf("ModelForTool(score) = %q, want the --model value to beat tool_model_overrides", m)
 		}
 	})
 
@@ -588,7 +593,7 @@ func readRecords(t *testing.T, dir string) []map[string]any {
 	return out
 }
 
-// TestEndToEnd_Recording drives jev_score over MCP with recording on and
+// TestEndToEnd_Recording drives score over MCP with recording on and
 // checks the session, client, tool_call and systemone records, their
 // call_id correlation, that a guard veto is recorded, that no key leaks,
 // and file permissions.
@@ -700,7 +705,7 @@ func TestEndToEnd_Recording(t *testing.T) {
 	})
 }
 
-// TestEndToEnd_Batch drives jev_batch over the in-memory MCP transport with
+// TestEndToEnd_Batch drives batch over the in-memory MCP transport with
 // recording on: tools/list includes it with a plain-object item input, a call
 // with 2 decide + 1 check items returns structured per-item results in input
 // order, an invalid item fails alone, a malformed batch is a tool error, and
@@ -752,22 +757,22 @@ func TestEndToEnd_Batch(t *testing.T) {
 	}
 	var found *mcp.Tool
 	for _, tool := range lt.Tools {
-		if tool.Name == "jev_batch" {
+		if tool.Name == "batch" {
 			found = tool
 		}
 	}
 	if found == nil {
-		t.Fatal("tools/list lacks jev_batch")
+		t.Fatal("tools/list lacks batch")
 	}
 	if schema := string(mustJSON(found.InputSchema)); !strings.Contains(schema, `"input":{"additionalProperties":true`) || !strings.Contains(schema, `"type":"object"`) {
-		t.Errorf("jev_batch input schema does not describe item input as a plain object: %s", schema)
+		t.Errorf("batch input schema does not describe item input as a plain object: %s", schema)
 	}
 
 	decideIn := func(pick string) map[string]any {
 		return map[string]any{"decision": "d " + pick, "evidence": "e", "priorities": "p", "candidates": []any{
 			map[string]any{"id": "a", "description": "A"}, map[string]any{"id": "b", "description": "B"}}}
 	}
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "jev_batch", Arguments: map[string]any{"items": []any{
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "batch", Arguments: map[string]any{"items": []any{
 		map[string]any{"id": "q1", "tool": "decide", "input": decideIn("1")},
 		map[string]any{"id": "bad", "tool": "decide", "input": map[string]any{"decision": "no candidates"}},
 		map[string]any{"id": "q2", "tool": "jev_decide", "input": decideIn("2")},
@@ -814,7 +819,7 @@ func TestEndToEnd_Batch(t *testing.T) {
 		t.Errorf("summary = %+v", out.Summary)
 	}
 
-	bad, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "jev_batch", Arguments: map[string]any{"items": []any{
+	bad, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "batch", Arguments: map[string]any{"items": []any{
 		map[string]any{"tool": "doctor", "input": map[string]any{}}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -829,7 +834,7 @@ func TestEndToEnd_Batch(t *testing.T) {
 	for _, r := range readRecords(t, dir) {
 		switch r["kind"] {
 		case "tool_call":
-			if r["tool"] == "jev_batch" && batchCall == "" {
+			if r["tool"] == "batch" && batchCall == "" {
 				batchCall = r["call_id"].(string)
 			}
 		case "systemone":
@@ -841,7 +846,7 @@ func TestEndToEnd_Batch(t *testing.T) {
 	}
 	for _, id := range soIDs {
 		if id != batchCall {
-			t.Errorf("systemone call_id %q != jev_batch tool_call %q", id, batchCall)
+			t.Errorf("systemone call_id %q != batch tool_call %q", id, batchCall)
 		}
 	}
 }

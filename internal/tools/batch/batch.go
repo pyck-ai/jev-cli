@@ -1,4 +1,4 @@
-// Package batch implements jev_batch: run several independent jev tool calls
+// Package batch implements batch: run several independent jev tool calls
 // in one call. Each item names a registered tool and carries that tool's own
 // input object; the item is dispatched to the tool's run core through
 // registry.Tool.Run (looked up at run time, so this package imports no tool
@@ -14,14 +14,13 @@
 // an unknown tool, a nested batch, or doctor. Results come back in input
 // order; summary.exit_code is the maximum of the item exit codes. The
 // session budget is re-checked before every launch. Audit keeps each item's
-// own line plus one extra "jev_batch" summary line.
+// own line plus one extra "batch" summary line.
 package batch
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,8 +31,8 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/registry"
 )
 
-// ToolNameBatch is the MCP tool name for jev_batch.
-const ToolNameBatch = "jev_batch"
+// ToolNameBatch is the MCP tool name for batch.
+const ToolNameBatch = "batch"
 
 const (
 	// MaxItems is the largest number of items one batch may carry.
@@ -54,11 +53,11 @@ const (
 // Item is one tool call inside a batch.
 type Item struct {
 	ID    string         `json:"id,omitempty" jsonschema:"Optional label echoed back in results[].id."`
-	Tool  string         `json:"tool" jsonschema:"Tool name without the jev_ prefix, e.g. decide or check. Not batch or doctor."`
+	Tool  string         `json:"tool" jsonschema:"Tool name, e.g. decide or check (a legacy jev_ prefix is accepted). Not batch or doctor."`
 	Input map[string]any `json:"input" jsonschema:"That tool's own input object, exactly as in a direct call."`
 }
 
-// BatchInput is the jev_batch tool's input schema.
+// BatchInput is the batch tool's input schema.
 type BatchInput struct {
 	Items          []Item `json:"items" jsonschema:"1-32 independent calls, run concurrently; results keep this order."`
 	MaxConcurrency int    `json:"max_concurrency,omitempty" jsonschema:"Optional, 1-8 (default 4)."`
@@ -87,13 +86,13 @@ type Summary struct {
 	BudgetExceeded bool     `json:"budget_exceeded,omitempty"`
 }
 
-// BatchOutput is the jev_batch tool's output schema.
+// BatchOutput is the batch tool's output schema.
 type BatchOutput struct {
 	Results []ItemResult `json:"results"`
 	Summary Summary      `json:"summary"`
 }
 
-// BatchHandler implements the jev_batch tool.
+// BatchHandler implements the batch tool.
 type BatchHandler struct {
 	deps   *registry.Deps
 	lookup func(name string) (registry.Tool, bool)
@@ -107,13 +106,12 @@ func NewBatchHandler(deps *registry.Deps) *BatchHandler {
 
 func init() {
 	description := "Run several independent jev tool calls in one call, e.g. several decisions at once (one " +
-		"jev_decide input per decision, such as a confidence for every option of several questions) or a " +
-		"decision plus jev_check sanity checks. Items run concurrently " +
+		"decide input per decision, such as a confidence for every option of several questions) or a " +
+		"decision plus check sanity checks. Items run concurrently " +
 		"and fail independently; each result is exactly what that tool returns alone. Use the single tool " +
 		"when there is only one call."
 	registry.Register(registry.Tool{
 		Name:        "batch",
-		MCPName:     ToolNameBatch,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewBatchHandler(deps)
@@ -138,9 +136,9 @@ func (h *BatchHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Ba
 	return nil, out, nil
 }
 
-// normalizeTool strips an optional jev_ prefix.
+// normalizeTool strips an optional legacy jev_ prefix.
 func normalizeTool(name string) string {
-	return strings.TrimPrefix(strings.TrimSpace(name), "jev_")
+	return registry.BareName(name)
 }
 
 // validate checks the batch is well formed and resolves every item's tool.
@@ -148,35 +146,35 @@ func normalizeTool(name string) string {
 // per-item error, not a batch error).
 func (h *BatchHandler) validate(in BatchInput) ([]registry.Tool, error) {
 	if len(in.Items) == 0 {
-		return nil, fmt.Errorf("jev_batch: items must contain at least 1 item")
+		return nil, fmt.Errorf("batch: items must contain at least 1 item")
 	}
 	if len(in.Items) > MaxItems {
-		return nil, fmt.Errorf("jev_batch: items has %d entries, max is %d", len(in.Items), MaxItems)
+		return nil, fmt.Errorf("batch: items has %d entries, max is %d", len(in.Items), MaxItems)
 	}
 	if in.MaxConcurrency < 0 || in.MaxConcurrency > MaxConcurrency {
-		return nil, fmt.Errorf("jev_batch: max_concurrency must be 1-%d, got %d", MaxConcurrency, in.MaxConcurrency)
+		return nil, fmt.Errorf("batch: max_concurrency must be 1-%d, got %d", MaxConcurrency, in.MaxConcurrency)
 	}
 	tools := make([]registry.Tool, len(in.Items))
 	for i, it := range in.Items {
 		name := normalizeTool(it.Tool)
 		switch name {
 		case "":
-			return nil, fmt.Errorf("jev_batch: items[%d].tool is required", i)
+			return nil, fmt.Errorf("batch: items[%d].tool is required", i)
 		case "batch":
-			return nil, fmt.Errorf("jev_batch: items[%d].tool: batches cannot be nested", i)
+			return nil, fmt.Errorf("batch: items[%d].tool: batches cannot be nested", i)
 		case "doctor":
-			return nil, fmt.Errorf("jev_batch: items[%d].tool: doctor is not a judgment and cannot be batched", i)
+			return nil, fmt.Errorf("batch: items[%d].tool: doctor is not a judgment and cannot be batched", i)
 		}
 		t, ok := h.lookup(name)
 		if !ok {
-			return nil, fmt.Errorf("jev_batch: items[%d].tool: unknown tool %q", i, it.Tool)
+			return nil, fmt.Errorf("batch: items[%d].tool: unknown tool %q", i, it.Tool)
 		}
 		tools[i] = t
 	}
 	return tools, nil
 }
 
-// run is jev_batch's transport-agnostic core.
+// run is batch's transport-agnostic core.
 func (h *BatchHandler) run(ctx context.Context, in BatchInput) (BatchOutput, error) {
 	start := time.Now()
 	tools, err := h.validate(in)
@@ -199,7 +197,7 @@ func (h *BatchHandler) run(ctx context.Context, in BatchInput) (BatchOutput, err
 		results[i] = ItemResult{Index: i, ID: in.Items[i].ID, Tool: tools[i].Name}
 		if h.deps.Budget.SessionBudgetExceeded() {
 			<-sem
-			fail(&results[i], fmt.Errorf("jev_batch: refusing item: session budget exhausted (spent $%.6f, cap $%.6f)",
+			fail(&results[i], fmt.Errorf("batch: refusing item: session budget exhausted (spent $%.6f, cap $%.6f)",
 				h.deps.Budget.Total(), h.deps.Config.Budget.MaxUSDPerSession))
 			continue
 		}
@@ -261,7 +259,7 @@ func (h *BatchHandler) runItem(ctx context.Context, t registry.Tool, it Item, r 
 	defer func() {
 		if p := recover(); p != nil {
 			*r = ItemResult{Index: r.Index, ID: r.ID, Tool: r.Tool}
-			fail(r, fmt.Errorf("jev_batch: item panicked: %v", p))
+			fail(r, fmt.Errorf("batch: item panicked: %v", p))
 		}
 	}()
 	if t.Run == nil {

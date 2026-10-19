@@ -1,4 +1,4 @@
-// This file adds jev_review's CLI subcommand (`jev review ...`), built
+// This file adds review's CLI subcommand (`jev review ...`), built
 // on top of the same run core as the MCP handler (see review.go).
 package review
 

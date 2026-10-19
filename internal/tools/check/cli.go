@@ -1,4 +1,4 @@
-// This file adds jev_check's CLI subcommand (`jev check ...`), built on
+// This file adds check's CLI subcommand (`jev check ...`), built on
 // top of the same run core as the MCP handler (see check.go).
 package check
 

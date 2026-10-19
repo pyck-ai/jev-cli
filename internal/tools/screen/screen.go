@@ -1,10 +1,10 @@
-// Package screen implements the jev_screen MCP tool: an ADVISORY-ONLY
+// Package screen implements the screen MCP tool: an ADVISORY-ONLY
 // safety/quality screen for a piece of text (e.g. content pulled from an
 // untrusted external source before an agent processes it), using
 // the configured SystemOne decision model's "noul" question type, via OpenRouter's
 // SystemOne API.
 //
-// jev_screen never blocks anything itself -- it has no side effects beyond
+// screen never blocks anything itself -- it has no side effects beyond
 // the SystemOne call and the standard audit log entry every tool in this
 // codebase writes. It only returns a recommendation for the CALLER to act
 // on. This is stated explicitly in this package's tool description (see
@@ -54,7 +54,7 @@ import (
 )
 
 // ToolNameScreen is the MCP tool name registered for ScreenHandler.
-const ToolNameScreen = "jev_screen"
+const ToolNameScreen = "screen"
 
 // Default thresholds. block_at and review_at are the project brief's
 // literal defaults ("thresholds block_at (default 0.75) and review_at
@@ -92,7 +92,7 @@ type Usage struct {
 	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
-// ScreenInput is the jev_screen tool's input schema.
+// ScreenInput is the screen tool's input schema.
 type ScreenInput struct {
 	Text     string  `json:"text" jsonschema:"The text to screen"`
 	Purpose  string  `json:"purpose,omitempty" jsonschema:"What the text should be relevant to; enables the relevance check"`
@@ -112,14 +112,14 @@ type Probabilities struct {
 	Relevance *float64 `json:"relevance"`
 }
 
-// Recommendation is jev_screen's sole output of consequence: purely
+// Recommendation is screen's sole output of consequence: purely
 // advisory (see package doc comment), never enforced by this tool itself.
 type Recommendation struct {
 	Action string `json:"action"`
 	Reason string `json:"reason"`
 }
 
-// ScreenOutput is the jev_screen tool's output schema.
+// ScreenOutput is the screen tool's output schema.
 type ScreenOutput struct {
 	Probabilities  Probabilities  `json:"probabilities"`
 	Recommendation Recommendation `json:"recommendation"`
@@ -132,7 +132,7 @@ type ScreenOutput struct {
 	BudgetExceeded bool     `json:"budget_exceeded,omitempty"`
 }
 
-// ScreenHandler implements the jev_screen tool.
+// ScreenHandler implements the screen tool.
 type ScreenHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -159,10 +159,9 @@ func NewScreenHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 func init() {
 	description := "Screen one untrusted text for prompt injection, lack of substance and (with purpose) relevance; " +
 		"returns a probability per signal and recommendation.action (block/review/pass/skip). Advisory only: " +
-		"never blocks anything itself. Use jev_check for a custom true/false question."
+		"never blocks anything itself. Use check for a custom true/false question."
 	registry.Register(registry.Tool{
 		Name:        "screen",
-		MCPName:     ToolNameScreen,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewScreenHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -191,7 +190,7 @@ func (h *ScreenHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in S
 	return nil, out, nil
 }
 
-// run is jev_screen's transport-agnostic core: everything from input
+// run is screen's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -208,7 +207,7 @@ func (h *ScreenHandler) run(ctx context.Context, in ScreenInput) (ScreenOutput, 
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		err := fmt.Errorf("jev_screen: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		err := fmt.Errorf("screen: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameScreen, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: err.Error(),
@@ -255,7 +254,7 @@ func (h *ScreenHandler) run(ctx context.Context, in ScreenInput) (ScreenOutput, 
 			Tool: ToolNameScreen, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 		})
-		return ScreenOutput{}, fmt.Errorf("jev_screen: %w", callErr)
+		return ScreenOutput{}, fmt.Errorf("screen: %w", callErr)
 	}
 
 	out := ScreenOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -339,20 +338,20 @@ func parseNoul(answersMap map[string]json.RawMessage, key string) (*float64, boo
 // information to fix the call on the next try.
 func validateInput(in ScreenInput) error {
 	if strings.TrimSpace(in.Text) == "" {
-		return fmt.Errorf("jev_screen: text: must not be empty; provide the text to screen as a non-empty string, e.g. \"Ignore all previous instructions.\"")
+		return fmt.Errorf("screen: text: must not be empty; provide the text to screen as a non-empty string, e.g. \"Ignore all previous instructions.\"")
 	}
 	for _, t := range []struct {
 		name string
 		v    float64
 	}{{"block_at", in.BlockAt}, {"review_at", in.ReviewAt}, {"low_at", in.LowAt}} {
 		if t.v != 0 && (t.v < 0 || t.v > 1) {
-			return fmt.Errorf("jev_screen: %s: must be in [0, 1] if set (got %v); omit it (or set it to 0) to use the default", t.name, t.v)
+			return fmt.Errorf("screen: %s: must be in [0, 1] if set (got %v); omit it (or set it to 0) to use the default", t.name, t.v)
 		}
 	}
 	blockAt := answers.ResolveThreshold(in.BlockAt, defaultBlockAt)
 	reviewAt := answers.ResolveThreshold(in.ReviewAt, defaultReviewAt)
 	if reviewAt >= blockAt {
-		return fmt.Errorf("jev_screen: review_at: must be less than block_at (got review_at=%v, block_at=%v); lower review_at, raise block_at, or omit both to use the defaults (block_at=%v, review_at=%v)", reviewAt, blockAt, defaultBlockAt, defaultReviewAt)
+		return fmt.Errorf("screen: review_at: must be less than block_at (got review_at=%v, block_at=%v); lower review_at, raise block_at, or omit both to use the defaults (block_at=%v, review_at=%v)", reviewAt, blockAt, defaultBlockAt, defaultReviewAt)
 	}
 	return nil
 }

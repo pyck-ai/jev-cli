@@ -1,4 +1,4 @@
-// This file adds jev_doctor's CLI subcommand (`jev doctor ...`), built
+// This file adds doctor's CLI subcommand (`jev doctor ...`), built
 // on top of the same run core as the MCP handler (see doctor.go).
 package doctor
 
@@ -17,7 +17,7 @@ const cliShortDescription = "Check OpenRouter/SystemOne connectivity and current
 
 // exitCode maps a DoctorOutput to the CLI's exit-code scheme: 3
 // (hard-error) when the probe couldn't reach the endpoint, 0 otherwise.
-// Unreachability is jev_doctor's whole diagnostic point (see package doc
+// Unreachability is doctor's whole diagnostic point (see package doc
 // comment: it's never a Go error), but for the CLI it's still the "this
 // invocation didn't succeed" case, hence 3 rather than a verdict tier.
 func exitCode(out DoctorOutput) int {

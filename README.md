@@ -17,17 +17,21 @@ returns calibrated probability distributions over every possible answer in
 SystemOne primitives -- `noul` (probability a statement holds), `choice`
 (probability distribution over a fixed option set), and `score` (probability
 distribution over an integer scale) -- batched, composed, and thresholded
-for a specific job. `jev_ask` is the escape hatch: it exposes those
+for a specific job. `ask` is the escape hatch: it exposes those
 primitives almost directly for anything the other 14 tools don't cover.
 
 Out of the box, jev-cli includes:
 
-- **15 tools** — `jev_score`, `jev_verify`, `jev_screen`, `jev_check`,
-  `jev_match`, `jev_rerank`, `jev_classify`, `jev_decide`, `jev_compare`,
-  `jev_extract`, `jev_review`, `jev_gate`, `jev_doctor`, `jev_ask`, and `jev_batch` (runs several independent tool calls
+- **15 tools** — `score`, `verify`, `screen`, `check`,
+  `match`, `rerank`, `classify`, `decide`, `compare`,
+  `extract`, `review`, `gate`, `doctor`, `ask`, and `batch` (runs several independent tool calls
   concurrently in one call). See
   [Tool reference](docs/tool-reference.md) for the full input/output spec of
-  each.
+  each. The MCP server registers them under these bare names; your MCP
+  client adds the server namespace (opencode shows `jev_score`, Claude Code
+  `mcp__jev__score`). Earlier builds registered `jev_score` etc.
+  themselves; that `jev_` form is still accepted wherever a tool is named
+  as input (`--tools`, `batch` items, `tool_model_overrides`).
 - **Both an MCP server and a CLI, from one binary**: `jev mcp` speaks MCP
   over stdio; `jev score ...`, `jev verify ...`, etc. run the exact same
   tool logic as a Unix command, with flags or a `--json` blob for input,
@@ -156,17 +160,17 @@ writing a line of this one:
 
 - **[jkudish/jev-mcp](https://github.com/jkudish/jev-mcp)** (TypeScript) — the
   primary influence on the tool surface. Its 11 opinionated, named tools
-  (`jev_verify`, `jev_review`, `jev_gate`, and the rest) are what `jev_verify`
-  through `jev_gate` here are modeled on, adapted onto SystemOne's actual wire
+  (`verify`, `review`, `gate`, and the rest) are what `verify`
+  through `gate` here are modeled on, adapted onto SystemOne's actual wire
   format rather than its own `@jkudish/jev-agent-tools` abstraction.
 - **[itsmostafa/system-one-connector](https://github.com/itsmostafa/system-one-connector)**
   (Go) — the closest architectural sibling: a single static Go binary calling
-  OpenRouter directly. `jev_check` and `jev_match` are renames of its
+  OpenRouter directly. `check` and `match` are renames of its
   `noul`/`choice` primitive framing; its binary-distribution model is why this
   project builds as one Go binary too.
 - **[blakestone-x/jev-mcp](https://github.com/blakestone-x/jev-mcp)**
   (Python) — TypeSafe-direct only, no OpenRouter path, but the source of
-  `jev_ask` (its generic question-map escape hatch) and `jev_doctor`
+  `ask` (its generic question-map escape hatch) and `doctor`
   (its `jev_health` renamed).
 
 ## Contributing

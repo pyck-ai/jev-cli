@@ -41,21 +41,21 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/registry"
 	"github.com/pyck-ai/jev-cli/internal/route"
 
-	_ "github.com/pyck-ai/jev-cli/internal/tools/ask"      // jev_ask
-	_ "github.com/pyck-ai/jev-cli/internal/tools/batch"    // jev_batch
-	_ "github.com/pyck-ai/jev-cli/internal/tools/check"    // jev_check
-	_ "github.com/pyck-ai/jev-cli/internal/tools/classify" // jev_classify
-	_ "github.com/pyck-ai/jev-cli/internal/tools/compare"  // jev_compare
-	_ "github.com/pyck-ai/jev-cli/internal/tools/decide"   // jev_decide
-	_ "github.com/pyck-ai/jev-cli/internal/tools/doctor"   // jev_doctor
-	_ "github.com/pyck-ai/jev-cli/internal/tools/extract"  // jev_extract
-	_ "github.com/pyck-ai/jev-cli/internal/tools/gate"     // jev_gate
-	_ "github.com/pyck-ai/jev-cli/internal/tools/match"    // jev_match
-	_ "github.com/pyck-ai/jev-cli/internal/tools/rerank"   // jev_rerank
-	_ "github.com/pyck-ai/jev-cli/internal/tools/review"   // jev_review
-	_ "github.com/pyck-ai/jev-cli/internal/tools/score"    // jev_score
-	_ "github.com/pyck-ai/jev-cli/internal/tools/screen"   // jev_screen
-	_ "github.com/pyck-ai/jev-cli/internal/tools/verify"   // jev_verify
+	_ "github.com/pyck-ai/jev-cli/internal/tools/ask"      // ask
+	_ "github.com/pyck-ai/jev-cli/internal/tools/batch"    // batch
+	_ "github.com/pyck-ai/jev-cli/internal/tools/check"    // check
+	_ "github.com/pyck-ai/jev-cli/internal/tools/classify" // classify
+	_ "github.com/pyck-ai/jev-cli/internal/tools/compare"  // compare
+	_ "github.com/pyck-ai/jev-cli/internal/tools/decide"   // decide
+	_ "github.com/pyck-ai/jev-cli/internal/tools/doctor"   // doctor
+	_ "github.com/pyck-ai/jev-cli/internal/tools/extract"  // extract
+	_ "github.com/pyck-ai/jev-cli/internal/tools/gate"     // gate
+	_ "github.com/pyck-ai/jev-cli/internal/tools/match"    // match
+	_ "github.com/pyck-ai/jev-cli/internal/tools/rerank"   // rerank
+	_ "github.com/pyck-ai/jev-cli/internal/tools/review"   // review
+	_ "github.com/pyck-ai/jev-cli/internal/tools/score"    // score
+	_ "github.com/pyck-ai/jev-cli/internal/tools/screen"   // screen
+	_ "github.com/pyck-ai/jev-cli/internal/tools/verify"   // verify
 )
 
 // serverVersion is this MCP server's own version, reported in its
@@ -151,8 +151,8 @@ const (
 )
 
 // selectTools resolves `jev mcp --tools` names to registered tools. Names
-// are the CLI subcommand names (verify, check, ...); a "jev_" prefix is
-// accepted too, so MCP tool names work as well. An empty list selects every
+// are the CLI subcommand names (verify, check, ...); a legacy "jev_" prefix is
+// accepted too, so old MCP tool names keep working. An empty list selects every
 // tool. Duplicates are ignored, and the result keeps registration order.
 func selectTools(names []string) ([]registry.Tool, error) {
 	all := registry.All()
@@ -165,9 +165,9 @@ func selectTools(names []string) ([]registry.Tool, error) {
 	}
 	want := make(map[string]bool, len(names))
 	for _, n := range names {
-		key := strings.TrimPrefix(strings.TrimSpace(n), "jev_")
+		key := registry.BareName(n)
 		if !known[key] {
-			return nil, fmt.Errorf("--tools: unknown tool %q; valid tools are: %s (a jev_ prefix is optional)",
+			return nil, fmt.Errorf("--tools: unknown tool %q; valid tools are: %s (a legacy jev_ prefix is accepted)",
 				n, strings.Join(toolCLINames(all), ", "))
 		}
 		want[key] = true
@@ -254,7 +254,7 @@ as a set of judgment tools, in three modes:
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Run the MCP server over stdio",
-		Long: `Serve jev tools (jev_score, jev_verify, ...) as MCP tools over stdio.
+		Long: `Serve jev tools (score, verify, ...) as MCP tools over stdio.
 Point your MCP client's server command at ` + "`jev mcp`" + `.
 
 By default every tool is served. Use --tools to serve only some of them,
@@ -274,7 +274,7 @@ list (and its token cost) small:
 		},
 	}
 	mcpCmd.Flags().StringSliceVar(&toolsFlag, "tools", nil,
-		"Serve only these tools, comma-separated (e.g. verify,check,compare). Names as in `jev --help`; a jev_ prefix is optional. Default: all tools.")
+		"Serve only these tools, comma-separated (e.g. verify,check,compare). Names as in `jev --help`; a legacy jev_ prefix is accepted. Default: all tools.")
 	root.AddCommand(mcpCmd)
 
 	// `jev models` lists the API's decision models. Its provider is lazy

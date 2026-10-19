@@ -28,10 +28,6 @@ import (
 	_ "github.com/pyck-ai/jev-cli/internal/tools/verify"
 )
 
-// mcpToolPrefix is the prefix every jev tool already carries in its MCP name
-// ("jev_score"). Bare names ("score") are what cases.json uses.
-const mcpToolPrefix = "jev_"
-
 // Function is one OpenAI-style function tool, as sent in the request.
 type Function struct {
 	Name        string         `json:"name"`
@@ -39,11 +35,11 @@ type Function struct {
 	Parameters  map[string]any `json:"parameters"`
 }
 
-// bareName strips an agent-side prefix and the MCP "jev_" prefix:
-// "jev_jev_decide" (prefix "jev_") -> "decide".
+// bareName strips the agent-side prefix. jev registers bare MCP names
+// ("decide"); the host adds its own namespace (opencode: "jev_"), so
+// "jev_decide" (prefix "jev_") -> "decide". Bare names are what cases.json uses.
 func bareName(name, prefix string) string {
-	name = strings.TrimPrefix(name, prefix)
-	return strings.TrimPrefix(name, mcpToolPrefix)
+	return strings.TrimPrefix(name, prefix)
 }
 
 // loadTools registers every tool from internal/registry on an in-process MCP

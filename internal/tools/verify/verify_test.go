@@ -181,7 +181,7 @@ func TestValidateInput_TooManyClaims(t *testing.T) {
 }
 
 // TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
-// jev_verify over MCP only see the error text, so each validation error
+// verify over MCP only see the error text, so each validation error
 // must say what the right shape/value is, not just what was wrong.
 func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
 	cases := map[string]struct {

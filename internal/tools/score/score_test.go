@@ -348,7 +348,7 @@ func TestScoreHandler_Handle_SessionBudgetRefusesBeforeCalling(t *testing.T) {
 }
 
 // TestValidateInput_ErrorsExplainTheExpectedShape: agents calling
-// jev_score over MCP only see the error text, so each validation error
+// score over MCP only see the error text, so each validation error
 // must say what the right shape/value is, not just what was wrong.
 func TestValidateInput_ErrorsExplainTheExpectedShape(t *testing.T) {
 	cases := map[string]struct {

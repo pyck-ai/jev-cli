@@ -1,9 +1,9 @@
 // Package reviewcore is the shared code-review scoring logic used by both
-// internal/tools/review (the jev_review tool) and internal/tools/gate (the
-// jev_gate tool, which is jev_review plus claim verification against
+// internal/tools/review (the review tool) and internal/tools/gate (the
+// gate tool, which is review plus claim verification against
 // caller-supplied evidence, all in one SystemOne call).
 //
-// The project brief for jev_gate explicitly asked for this logic to be
+// The project brief for gate explicitly asked for this logic to be
 // shared rather than duplicated, offering two options: gate imports
 // review's exported logic/types directly, or both depend on a small shared
 // helper package. This package is that second option -- chosen because
@@ -33,7 +33,7 @@ import (
 )
 
 // Hard caps on Request/Diff/Tests, in runes (see internal/capstring),
-// named verbatim in the project brief for both jev_review and jev_gate
+// named verbatim in the project brief for both review and gate
 // ("each capped 50,000 chars").
 const (
 	MaxRequestChars = 50_000

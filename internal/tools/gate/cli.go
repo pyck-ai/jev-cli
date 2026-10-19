@@ -1,4 +1,4 @@
-// This file adds jev_gate's CLI subcommand (`jev gate ...`), built on
+// This file adds gate's CLI subcommand (`jev gate ...`), built on
 // top of the same run core as the MCP handler (see gate.go).
 package gate
 
@@ -13,10 +13,10 @@ import (
 	"github.com/pyck-ai/jev-cli/internal/registry"
 )
 
-const cliShortDescription = "jev_review plus evidence-only claim verification"
+const cliShortDescription = "review plus evidence-only claim verification"
 
 // exitCode maps a GateOutput's top-level Action to the CLI's exit-code
-// scheme, identically to jev_review's own mapping (see
+// scheme, identically to review's own mapping (see
 // internal/tools/review/cli.go's exitCode): 2 for escalate, 1 for
 // review, 0 for auto. GateOutput.Action is always exactly one of
 // ActionAuto/ActionReview/ActionEscalate (see computeAction), so there

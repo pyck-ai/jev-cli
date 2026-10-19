@@ -1,4 +1,4 @@
-// Package doctor implements the jev_doctor MCP tool (renamed from
+// Package doctor implements the doctor MCP tool (renamed from
 // blakestone's jev_health per the project brief): a minimal, cheap
 // SystemOne round-trip against the currently configured (or
 // caller-overridden) model, reporting reachability and latency, plus a
@@ -18,7 +18,7 @@
 // essentially never returns a Go error (which the MCP SDK would surface
 // as IsError=true, hiding any structured content): a network failure, a
 // refused call (session budget exhausted), or an unreachable endpoint are
-// exactly the situations jev_doctor exists to diagnose, so they are
+// exactly the situations doctor exists to diagnose, so they are
 // reported as a normal, successful tool result with Reachable=false and a
 // human-readable Error string -- not as a tool failure. The only
 // exception is if building the underlying HTTP request itself panics or
@@ -62,7 +62,7 @@ import (
 )
 
 // ToolNameDoctor is the MCP tool name registered for DoctorHandler.
-const ToolNameDoctor = "jev_doctor"
+const ToolNameDoctor = "doctor"
 
 // Usage mirrors the token accounting reported by OpenRouter for a call.
 type Usage struct {
@@ -73,14 +73,14 @@ type Usage struct {
 	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
-// DoctorInput is the jev_doctor tool's input schema. Every field is
+// DoctorInput is the doctor tool's input schema. Every field is
 // optional -- an empty DoctorInput{} is a complete, valid call.
 type DoctorInput struct {
 	ProbeModel string `json:"probe_model,omitempty" jsonschema:"Model slug to probe instead of the configured one."`
 }
 
 // ConfigSnapshot reports whatever configuration is currently active, so
-// jev_doctor doubles as a configuration-sanity check.
+// doctor doubles as a configuration-sanity check.
 type ConfigSnapshot struct {
 	// ResolvedModel is config.Config.DefaultModel: the model every OTHER
 	// tool falls back to absent its own tool_model_overrides entry (see
@@ -104,7 +104,7 @@ type ConfigSnapshot struct {
 	SessionSpendUSD        float64 `json:"session_spend_usd"`
 }
 
-// DoctorOutput is the jev_doctor tool's output schema.
+// DoctorOutput is the doctor tool's output schema.
 type DoctorOutput struct {
 	Model          string         `json:"model"`
 	Reachable      bool           `json:"reachable"`
@@ -115,7 +115,7 @@ type DoctorOutput struct {
 	BudgetExceeded bool           `json:"budget_exceeded,omitempty"`
 }
 
-// DoctorHandler implements the jev_doctor tool.
+// DoctorHandler implements the doctor tool.
 type DoctorHandler struct {
 	client   *openrouter.Client
 	model    string
@@ -143,7 +143,6 @@ func init() {
 		"reachable=false, not an error."
 	registry.Register(registry.Tool{
 		Name:        "doctor",
-		MCPName:     ToolNameDoctor,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewDoctorHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -170,7 +169,7 @@ func (h *DoctorHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in D
 	return nil, out, nil
 }
 
-// run is jev_doctor's transport-agnostic core.
+// run is doctor's transport-agnostic core.
 func (h *DoctorHandler) run(ctx context.Context, in DoctorInput) (DoctorOutput, error) {
 	start := time.Now()
 

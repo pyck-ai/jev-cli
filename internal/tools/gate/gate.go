@@ -1,4 +1,4 @@
-// Package gate implements the jev_gate MCP tool: jev_review's four-rubric
+// Package gate implements the gate MCP tool: review's four-rubric
 // code-review assessment PLUS claim verification against caller-supplied
 // evidence, combined into a single stricter auto/review/escalate gate
 // decision, using the configured SystemOne decision model via OpenRouter's
@@ -68,9 +68,9 @@ import (
 )
 
 // ToolNameGate is the MCP tool name registered for GateHandler.
-const ToolNameGate = "jev_gate"
+const ToolNameGate = "gate"
 
-// Caps named verbatim in the project brief for jev_gate's claims/evidence
+// Caps named verbatim in the project brief for gate's claims/evidence
 // (distinct from, and stricter than, internal/tools/verify's own invented
 // cap for its general-purpose claims list).
 const (
@@ -108,13 +108,13 @@ type Usage struct {
 }
 
 // EvidenceItem is one item of gate's (always structured, unlike
-// jev_verify's dual-shape Evidence) evidence list.
+// verify's dual-shape Evidence) evidence list.
 type EvidenceItem struct {
 	ID   string `json:"id" jsonschema:"Unique evidence id."`
 	Text string `json:"text" jsonschema:"Evidence text claims are checked against."`
 }
 
-// GateInput is the jev_gate tool's input schema: jev_review's input
+// GateInput is the gate tool's input schema: review's input
 // (request/diff/tests plus thresholds) plus claims/evidence.
 type GateInput struct {
 	Request        string             `json:"request" jsonschema:"Original task the diff should satisfy; max 50,000 chars."`
@@ -156,7 +156,7 @@ type Verification struct {
 	Results []ClaimResult       `json:"results"`
 }
 
-// GateOutput is the jev_gate tool's output schema.
+// GateOutput is the gate tool's output schema.
 type GateOutput struct {
 	Action         string                `json:"action"`
 	Review         reviewcore.Assessment `json:"review"`
@@ -168,7 +168,7 @@ type GateOutput struct {
 	BudgetExceeded bool                  `json:"budget_exceeded,omitempty"`
 }
 
-// GateHandler implements the jev_gate tool.
+// GateHandler implements the gate tool.
 type GateHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -193,13 +193,12 @@ func NewGateHandler(client *openrouter.Client, cfg config.Config, tracker *budge
 }
 
 func init() {
-	description := "jev_review plus claim verification: assesses a diff and fact-checks claims against supplied " +
+	description := "review plus claim verification: assesses a diff and fact-checks claims against supplied " +
 		"evidence in one call; returns action auto/review/escalate, the review, and per-claim results. " +
-		"Use when you have claims to verify, else jev_review. A confidently contradicted claim forces " +
+		"Use when you have claims to verify, else review. A confidently contradicted claim forces " +
 		"escalate; auto needs review and every claim auto."
 	registry.Register(registry.Tool{
 		Name:        "gate",
-		MCPName:     ToolNameGate,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewGateHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -228,7 +227,7 @@ func (h *GateHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in Gat
 	return nil, out, nil
 }
 
-// run is jev_gate's transport-agnostic core: everything from input
+// run is gate's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -249,7 +248,7 @@ func (h *GateHandler) run(ctx context.Context, in GateInput) (GateOutput, error)
 	itemCount := 5 + len(in.Claims)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_gate: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("gate: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameGate, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -285,7 +284,7 @@ func (h *GateHandler) run(ctx context.Context, in GateInput) (GateOutput, error)
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: itemCount,
 		})
-		return GateOutput{}, fmt.Errorf("jev_gate: %w", callErr)
+		return GateOutput{}, fmt.Errorf("gate: %w", callErr)
 	}
 
 	autoAccept := answers.ResolveThreshold(in.AutoAccept, reviewcore.DefaultAutoAccept)
@@ -425,58 +424,58 @@ func summarize(claims []ClaimResult) VerificationSummary {
 // budget or making a network call.
 func validateInput(in GateInput) error {
 	if strings.TrimSpace(in.Request) == "" {
-		return fmt.Errorf("jev_gate: request must not be empty; describe the original task/request the diff is meant to satisfy (a non-empty string, up to 50,000 characters)")
+		return fmt.Errorf("gate: request must not be empty; describe the original task/request the diff is meant to satisfy (a non-empty string, up to 50,000 characters)")
 	}
 	if strings.TrimSpace(in.Diff) == "" {
-		return fmt.Errorf("jev_gate: diff must not be empty; provide the diff/patch text to review (a non-empty string, up to 50,000 characters)")
+		return fmt.Errorf("gate: diff must not be empty; provide the diff/patch text to review (a non-empty string, up to 50,000 characters)")
 	}
 	if len(in.Claims) == 0 {
-		return fmt.Errorf(`jev_gate: claims must not be empty; provide 1-16 factual claims to verify against evidence, e.g. ["the cache is thread-safe"]`)
+		return fmt.Errorf(`gate: claims must not be empty; provide 1-16 factual claims to verify against evidence, e.g. ["the cache is thread-safe"]`)
 	}
 	if len(in.Claims) > maxClaims {
-		return fmt.Errorf("jev_gate: claims has %d entries, more than the max of %d; verify fewer claims per call", len(in.Claims), maxClaims)
+		return fmt.Errorf("gate: claims has %d entries, more than the max of %d; verify fewer claims per call", len(in.Claims), maxClaims)
 	}
 	for i, c := range in.Claims {
 		if strings.TrimSpace(c) == "" {
-			return fmt.Errorf(`jev_gate: claims[%d] must not be empty; each claim must be a non-empty string, e.g. "the cache is thread-safe"`, i)
+			return fmt.Errorf(`gate: claims[%d] must not be empty; each claim must be a non-empty string, e.g. "the cache is thread-safe"`, i)
 		}
 	}
 	if len(in.Evidence) == 0 {
-		return fmt.Errorf(`jev_gate: evidence must not be empty; provide 1-16 evidence items, each an object with id and text, e.g. [{"id":"e1","text":"Cache holds no shared mutable state."}]`)
+		return fmt.Errorf(`gate: evidence must not be empty; provide 1-16 evidence items, each an object with id and text, e.g. [{"id":"e1","text":"Cache holds no shared mutable state."}]`)
 	}
 	if len(in.Evidence) > maxEvidenceItems {
-		return fmt.Errorf("jev_gate: evidence has %d items, more than the max of %d; combine or drop some evidence items", len(in.Evidence), maxEvidenceItems)
+		return fmt.Errorf("gate: evidence has %d items, more than the max of %d; combine or drop some evidence items", len(in.Evidence), maxEvidenceItems)
 	}
 	seen := make(map[string]bool, len(in.Evidence))
 	aggregate := 0
 	for i, e := range in.Evidence {
 		if strings.TrimSpace(e.ID) == "" {
-			return fmt.Errorf(`jev_gate: evidence[%d].id must not be empty; give this evidence item a short unique identifier, e.g. "e1"`, i)
+			return fmt.Errorf(`gate: evidence[%d].id must not be empty; give this evidence item a short unique identifier, e.g. "e1"`, i)
 		}
 		if seen[e.ID] {
-			return fmt.Errorf("jev_gate: evidence[%d].id: %q is already used by another evidence item; every evidence[].id must be unique within one call", i, e.ID)
+			return fmt.Errorf("gate: evidence[%d].id: %q is already used by another evidence item; every evidence[].id must be unique within one call", i, e.ID)
 		}
 		seen[e.ID] = true
 		if strings.TrimSpace(e.Text) == "" {
-			return fmt.Errorf("jev_gate: evidence[%d].text must not be empty; provide the evidence text claims[] will be checked against", i)
+			return fmt.Errorf("gate: evidence[%d].text must not be empty; provide the evidence text claims[] will be checked against", i)
 		}
 		aggregate += len([]rune(e.Text))
 	}
 	if aggregate > maxEvidenceAggChars {
-		return fmt.Errorf("jev_gate: evidence[].text totals %d characters, more than the max of %d combined; shorten or drop some evidence items", aggregate, maxEvidenceAggChars)
+		return fmt.Errorf("gate: evidence[].text totals %d characters, more than the max of %d combined; shorten or drop some evidence items", aggregate, maxEvidenceAggChars)
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf(`jev_gate: %w (0 means "use the default 0.8")`, err)
+		return fmt.Errorf(`gate: %w (0 means "use the default 0.8")`, err)
 	}
 	if in.CompositeFloor != 0 && (in.CompositeFloor < 0 || in.CompositeFloor > 1) {
-		return fmt.Errorf(`jev_gate: composite_floor must be in the range [0,1] if set (0 means use the default 0.7), got %v; this is the minimum weighted review composite required for the review half to be "auto"`, in.CompositeFloor)
+		return fmt.Errorf(`gate: composite_floor must be in the range [0,1] if set (0 means use the default 0.7), got %v; this is the minimum weighted review composite required for the review half to be "auto"`, in.CompositeFloor)
 	}
 	for name, w := range map[string]float64{
 		"weights.correctness": in.Weights.Correctness, "weights.spec_match": in.Weights.SpecMatch,
 		"weights.test_gap": in.Weights.TestGap, "weights.blast_radius": in.Weights.BlastRadius,
 	} {
 		if w < 0 {
-			return fmt.Errorf("jev_gate: %s must be >= 0, got %v; the four weights are normalized to sum to 1, so only non-negative values make sense", name, w)
+			return fmt.Errorf("gate: %s must be >= 0, got %v; the four weights are normalized to sum to 1, so only non-negative values make sense", name, w)
 		}
 	}
 	return nil

@@ -114,8 +114,9 @@ func TestLookup(t *testing.T) {
 	tools = nil
 	defer func() { tools = orig }()
 
-	Register(Tool{Name: "alpha", MCPName: "jev_alpha", Run: testRunner()})
-	for _, name := range []string{"alpha", "jev_alpha"} {
+	Register(Tool{Name: "alpha", Run: testRunner()})
+	// The bare name is canonical; the legacy jev_ form is still accepted.
+	for _, name := range []string{"alpha", "jev_alpha", " jev_alpha "} {
 		got, ok := Lookup(name)
 		if !ok || got.Name != "alpha" || got.Run == nil {
 			t.Errorf("Lookup(%q) = %+v, %v", name, got, ok)

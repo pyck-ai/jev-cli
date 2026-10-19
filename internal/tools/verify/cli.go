@@ -1,4 +1,4 @@
-// This file adds jev_verify's CLI subcommand (`jev verify ...`), built on
+// This file adds verify's CLI subcommand (`jev verify ...`), built on
 // top of the same run core as the MCP handler (see verify.go).
 package verify
 

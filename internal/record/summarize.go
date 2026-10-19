@@ -90,7 +90,8 @@ func (s *Summary) addFile(path string) error {
 			}
 		case KindToolCall:
 			s.ToolCalls++
-			// MCP records "jev_check", the CLI "check": count them as one tool.
+			// Records written before MCP tools went bare say "jev_check",
+			// newer MCP and CLI records "check": count them as one tool.
 			get(s.Tools, strings.TrimPrefix(rec.Tool, "jev_")).add(rec.IsError != nil && *rec.IsError, rec.LatencyMS)
 		case KindSystemOne:
 			get(s.Models, rec.Model).add(rec.Error != "", rec.LatencyMS)

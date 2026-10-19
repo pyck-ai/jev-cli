@@ -237,8 +237,8 @@ func (r *renderer) tableField(pad, name string, fv reflect.Value) {
 // sorted "key=value, key2=value2" pairs; structs render as
 // "field=value, field2=value2" pairs using the same JSON field names
 // the rest of this package uses, recursing on every field's value so a
-// struct-valued map entry or table cell (e.g. jev_ask's per-question
-// Answer, or a per-claim Probabilities map nested inside jev_verify's
+// struct-valued map entry or table cell (e.g. ask's per-question
+// Answer, or a per-claim Probabilities map nested inside verify's
 // results table) never falls through to Go's raw %v struct/pointer
 // dump -- which would print unexported internals and a live pointer
 // address, a correctness bug (leaking an address) as well as an

@@ -1,6 +1,6 @@
-// Package ask implements the jev_ask MCP tool: the escape hatch. Unlike
+// Package ask implements the ask MCP tool: the escape hatch. Unlike
 // every other tool in this codebase, which builds a fixed, purpose-specific
-// question shape from typed input, jev_ask accepts a caller-supplied
+// question shape from typed input, ask accepts a caller-supplied
 // SystemOne question map almost verbatim -- matching OpenRouter's own
 // "questions" wire shape (see internal/openrouter's package doc comment)
 // nearly 1:1 -- and passes it straight through to a single client.Ask
@@ -26,7 +26,7 @@
 // # Output: pass through, fail closed per answer
 //
 // Per the project brief, "the same fail-closed validation per answer that
-// jev_score already does for its own type" is applied to every requested
+// score already does for its own type" is applied to every requested
 // question's answer independently: a malformed or missing answer for one
 // question key is reported as that key's AskAnswer.Status ==
 // "invalid_response" (with only Type preserved, so the caller can still
@@ -61,7 +61,7 @@ import (
 )
 
 // ToolNameAsk is the MCP tool name registered for AskHandler.
-const ToolNameAsk = "jev_ask"
+const ToolNameAsk = "ask"
 
 // maxQuestions is this implementation's own invented safety cap (see
 // package doc comment).
@@ -100,7 +100,7 @@ type AskQuestion struct {
 	Criteria     any    `json:"criteria" jsonschema:"Non-empty, by type. noul: {\"true\": \"<desc>\", \"false\": \"<desc>\"}. choice: {\"<option id>\": \"<desc>\", ...}. score: [\"<lowest level>\", ..., \"<highest>\"]."`
 }
 
-// AskInput is the jev_ask tool's input schema.
+// AskInput is the ask tool's input schema.
 type AskInput struct {
 	// State is a string, or an arbitrary JSON object/array of related
 	// context -- matching SystemOne's own "state" field flexibility (see
@@ -127,7 +127,7 @@ type AskAnswer struct {
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
 }
 
-// AskOutput is the jev_ask tool's output schema.
+// AskOutput is the ask tool's output schema.
 type AskOutput struct {
 	Answers        map[string]AskAnswer `json:"answers"`
 	Model          string               `json:"model"`
@@ -136,7 +136,7 @@ type AskOutput struct {
 	BudgetExceeded bool                 `json:"budget_exceeded,omitempty"`
 }
 
-// AskHandler implements the jev_ask tool.
+// AskHandler implements the ask tool.
 type AskHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -162,15 +162,14 @@ func NewAskHandler(client *openrouter.Client, cfg config.Config, tracker *budget
 
 func init() {
 	description := "Ask mixed noul/choice/score questions about one shared state in one call, or a custom set no " +
-		"other tool covers; not for a single best-option pick (jev_decide) or classes (jev_classify); " +
-		"for several independent decisions use jev_batch. " +
+		"other tool covers; not for a single best-option pick (decide) or classes (classify); " +
+		"for several independent decisions use batch. " +
 		"Questions: " +
 		`{"k1": {"type": "noul", "instructions": "...", "criteria": {"true": "...", "false": "..."}}, ` +
 		`"k2": {"type": "choice", "instructions": "...", "criteria": {"a": "...", "b": "..."}}, ` +
 		`"k3": {"type": "score", "instructions": "...", "criteria": ["low", "high"]}}.`
 	registry.Register(registry.Tool{
 		Name:        "ask",
-		MCPName:     ToolNameAsk,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewAskHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -199,7 +198,7 @@ func (h *AskHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in AskI
 	return nil, out, nil
 }
 
-// run is jev_ask's transport-agnostic core: everything from input
+// run is ask's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -213,7 +212,7 @@ func (h *AskHandler) run(ctx context.Context, in AskInput) (AskOutput, error) {
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_ask: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("ask: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameAsk, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -236,7 +235,7 @@ func (h *AskHandler) run(ctx context.Context, in AskInput) (AskOutput, error) {
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Questions),
 		})
-		return AskOutput{}, fmt.Errorf("jev_ask: %w", callErr)
+		return AskOutput{}, fmt.Errorf("ask: %w", callErr)
 	}
 
 	out := AskOutput{Model: resp.Model, LatencyMs: latencyMs, Answers: make(map[string]AskAnswer, len(in.Questions))}
@@ -333,17 +332,17 @@ func criteriaArrayLen(criteria any) int {
 // spending any budget or making a network call.
 func validateInput(in AskInput) error {
 	if in.State == nil {
-		return fmt.Errorf("jev_ask: state must not be omitted")
+		return fmt.Errorf("ask: state must not be omitted")
 	}
 	if len(in.Questions) == 0 {
-		return fmt.Errorf("jev_ask: questions must not be empty")
+		return fmt.Errorf("ask: questions must not be empty")
 	}
 	if len(in.Questions) > maxQuestions {
-		return fmt.Errorf("jev_ask: too many questions (%d, max %d)", len(in.Questions), maxQuestions)
+		return fmt.Errorf("ask: too many questions (%d, max %d)", len(in.Questions), maxQuestions)
 	}
 	for id, q := range in.Questions {
 		if err := validateQuestion(id, q); err != nil {
-			return fmt.Errorf("jev_ask: %w", err)
+			return fmt.Errorf("ask: %w", err)
 		}
 	}
 	return nil

@@ -72,7 +72,7 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 	fs.StringVar(&c.baseURL, "base-url", "", "API base URL (default $PYCKLLM_BASE_URL or "+defaultProxy+"; with --openrouter: "+openRouterBase+")")
 	fs.StringVar(&c.apiKeyEnv, "api-key-env", "", "env var holding the API key (default PYCKLLM_API_KEY; with --openrouter: OPENROUTER_API_KEY)")
 	fs.BoolVar(&c.direct, "openrouter", false, "direct OpenRouter mode: every model goes to <base>/chat/completions")
-	fs.StringVar(&c.prefix, "prefix", "jev_", "prefix the agent host adds to MCP tool names (opencode: server name + _)")
+	fs.StringVar(&c.prefix, "prefix", "jev_", "prefix the agent host adds to MCP tool names (opencode: server name + _, so jev_decide)")
 	fs.StringVar(&models, "models", "~anthropic/claude-haiku-latest", "comma-separated agent model ids")
 	fs.StringVar(&c.casesPath, "cases", "eval/toolselect/cases.json", "path to the cases file")
 	fs.StringVar(&c.filter, "filter", "", "only run cases whose id contains this substring")

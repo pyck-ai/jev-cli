@@ -1,4 +1,4 @@
-// Package verify implements the jev_verify MCP tool: batched
+// Package verify implements the verify MCP tool: batched
 // support/contradict/says-nothing verification of a list of claims against
 // supplied evidence, using the configured SystemOne decision model's "choice"
 // question type, via OpenRouter's SystemOne API.
@@ -31,7 +31,7 @@
 // this implementation environment). auto_accept's default of 0.8 is the
 // project brief's literal default for this tool. maxClaims (64) is this
 // implementation's own invented safety cap: the brief did not state one
-// for jev_verify specifically (unlike e.g. jev_check's explicit "cap 64"),
+// for verify specifically (unlike e.g. check's explicit "cap 64"),
 // so this package reuses that same number for consistency across the
 // tool suite.
 package verify
@@ -56,14 +56,14 @@ import (
 )
 
 // ToolNameVerify is the MCP tool name registered for VerifyHandler.
-const ToolNameVerify = "jev_verify"
+const ToolNameVerify = "verify"
 
 // maxClaims is this implementation's own invented cap (see package doc
 // comment).
 const maxClaims = 64
 
 // defaultAutoAccept is the project brief's literal default for
-// jev_verify's auto_accept.
+// verify's auto_accept.
 const defaultAutoAccept = 0.8
 
 // The three verdict options every claim's "choice" question offers,
@@ -104,7 +104,7 @@ type EvidenceItem struct {
 	Text string `json:"text" jsonschema:"Evidence text"`
 }
 
-// VerifyInput is the jev_verify tool's input schema.
+// VerifyInput is the verify tool's input schema.
 type VerifyInput struct {
 	Claims []string `json:"claims" jsonschema:"1-64 non-empty claims, each judged independently"`
 	// Evidence is a single text blob (JSON string), or a list of
@@ -128,7 +128,7 @@ type ClaimResult struct {
 	Status        string             `json:"status"`
 }
 
-// VerifyOutput is the jev_verify tool's output schema.
+// VerifyOutput is the verify tool's output schema.
 type VerifyOutput struct {
 	Results        []ClaimResult `json:"results"`
 	Model          string        `json:"model"`
@@ -137,7 +137,7 @@ type VerifyOutput struct {
 	BudgetExceeded bool          `json:"budget_exceeded,omitempty"`
 }
 
-// VerifyHandler implements the jev_verify tool.
+// VerifyHandler implements the verify tool.
 type VerifyHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -163,11 +163,10 @@ func NewVerifyHandler(client *openrouter.Client, cfg config.Config, tracker *bud
 
 func init() {
 	description := "Check 1-64 claims against evidence text, each judged independently as supports, contradicts or " +
-		"says_nothing; returns verdict, confidence, action per claim. Use jev_check instead for standalone " +
+		"says_nothing; returns verdict, confidence, action per claim. Use check instead for standalone " +
 		"propositions without evidence. Fails closed: bad answers are status=invalid_response."
 	registry.Register(registry.Tool{
 		Name:        "verify",
-		MCPName:     ToolNameVerify,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewVerifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -196,7 +195,7 @@ func (h *VerifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in V
 	return nil, out, nil
 }
 
-// run is jev_verify's transport-agnostic core: everything from input
+// run is verify's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -212,7 +211,7 @@ func (h *VerifyHandler) run(ctx context.Context, in VerifyInput) (VerifyOutput, 
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_verify: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("verify: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameVerify, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -246,7 +245,7 @@ func (h *VerifyHandler) run(ctx context.Context, in VerifyInput) (VerifyOutput, 
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Claims),
 		})
-		return VerifyOutput{}, fmt.Errorf("jev_verify: %w", callErr)
+		return VerifyOutput{}, fmt.Errorf("verify: %w", callErr)
 	}
 
 	out := VerifyOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -320,18 +319,18 @@ func claimKey(i int) string { return "c" + strconv.Itoa(i) }
 // itself has to carry enough information to fix the call on the next try.
 func validateInput(in VerifyInput) (state any, err error) {
 	if len(in.Claims) == 0 {
-		return nil, fmt.Errorf("jev_verify: claims: must not be empty; provide 1 to %d claims as an array of strings, e.g. [\"the invoice total is $500\"]", maxClaims)
+		return nil, fmt.Errorf("verify: claims: must not be empty; provide 1 to %d claims as an array of strings, e.g. [\"the invoice total is $500\"]", maxClaims)
 	}
 	if len(in.Claims) > maxClaims {
-		return nil, fmt.Errorf("jev_verify: claims: too many entries (%d), more than the maximum of %d; reduce the list to at most %d claims", len(in.Claims), maxClaims, maxClaims)
+		return nil, fmt.Errorf("verify: claims: too many entries (%d), more than the maximum of %d; reduce the list to at most %d claims", len(in.Claims), maxClaims, maxClaims)
 	}
 	for i, c := range in.Claims {
 		if strings.TrimSpace(c) == "" {
-			return nil, fmt.Errorf("jev_verify: claims[%d]: must not be empty; provide a non-empty claim string, e.g. \"the invoice total is $500\"", i)
+			return nil, fmt.Errorf("verify: claims[%d]: must not be empty; provide a non-empty claim string, e.g. \"the invoice total is $500\"", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return nil, fmt.Errorf("jev_verify: %w", err)
+		return nil, fmt.Errorf("verify: %w", err)
 	}
 	return normalizeEvidence(in.Evidence)
 }
@@ -343,17 +342,17 @@ func validateInput(in VerifyInput) (state any, err error) {
 // ready to use as SystemOne's "state" verbatim.
 func normalizeEvidence(raw any) (any, error) {
 	if raw == nil {
-		return nil, fmt.Errorf("jev_verify: evidence: must not be omitted; provide either a string, e.g. \"Invoice #1: total $500.00\", or an array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]")
+		return nil, fmt.Errorf("verify: evidence: must not be omitted; provide either a string, e.g. \"Invoice #1: total $500.00\", or an array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]")
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return nil, fmt.Errorf("jev_verify: evidence: %w", err)
+		return nil, fmt.Errorf("verify: evidence: %w", err)
 	}
 
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
 		if strings.TrimSpace(s) == "" {
-			return nil, fmt.Errorf("jev_verify: evidence: must not be empty; provide the evidence text as a non-empty string, e.g. \"Invoice #1: total $500.00\"")
+			return nil, fmt.Errorf("verify: evidence: must not be empty; provide the evidence text as a non-empty string, e.g. \"Invoice #1: total $500.00\"")
 		}
 		return s, nil
 	}
@@ -362,13 +361,13 @@ func normalizeEvidence(raw any) (any, error) {
 	if err := json.Unmarshal(b, &items); err == nil && len(items) > 0 {
 		for i, it := range items {
 			if strings.TrimSpace(it.Text) == "" {
-				return nil, fmt.Errorf("jev_verify: evidence[%d].text: must not be empty; each evidence item needs non-empty text, e.g. {\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}", i)
+				return nil, fmt.Errorf("verify: evidence[%d].text: must not be empty; each evidence item needs non-empty text, e.g. {\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}", i)
 			}
 		}
 		return items, nil
 	}
 
-	return nil, fmt.Errorf("jev_verify: evidence: got %s, which is not a recognized shape; provide either a non-empty string, e.g. \"Invoice #1: total $500.00\", or a non-empty array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]", humanJSONType(raw))
+	return nil, fmt.Errorf("verify: evidence: got %s, which is not a recognized shape; provide either a non-empty string, e.g. \"Invoice #1: total $500.00\", or a non-empty array of {id, text} objects, e.g. [{\"id\": \"doc1\", \"text\": \"Invoice #1: total $500.00\"}]", humanJSONType(raw))
 }
 
 // humanJSONType describes v's JSON shape (v is always one of the types

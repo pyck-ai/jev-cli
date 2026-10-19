@@ -5,10 +5,10 @@
 // documented size budget or balloon the cost of a single SystemOne call.
 //
 // Every cap named in the project brief for the batch of tools built on
-// top of the plugin architecture (jev_compare's 20,000-char passages,
-// jev_extract's 50,000-char document, jev_review/jev_gate's 50,000-char
-// request/diff/tests, jev_gate's 200,000-char aggregate evidence,
-// jev_rerank's 100,000-char aggregate candidates, jev_match/jev_rerank's
+// top of the plugin architecture (compare's 20,000-char passages,
+// extract's 50,000-char document, review/gate's 50,000-char
+// request/diff/tests, gate's 200,000-char aggregate evidence,
+// rerank's 100,000-char aggregate candidates, match/rerank's
 // 2,000-char per-candidate text, ...) is a count of characters, not
 // bytes, so Truncate counts runes -- consistent with how a human reading
 // "50,000 characters" would count them, and safe against splitting a

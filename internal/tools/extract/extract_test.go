@@ -277,7 +277,7 @@ func TestValidateInput_TooManyFields(t *testing.T) {
 }
 
 // TestValidateInput_ErrorsExplainWhatIsExpected: agents calling
-// jev_extract over MCP only see the error text, so each validation error
+// extract over MCP only see the error text, so each validation error
 // must say what's wrong AND what's expected (field path, shape, example,
 // or limit) -- not just what's wrong.
 func TestValidateInput_ErrorsExplainWhatIsExpected(t *testing.T) {

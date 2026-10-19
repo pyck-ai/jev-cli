@@ -1,4 +1,4 @@
-// Package classify implements the jev_classify MCP tool: assigns each of a
+// Package classify implements the classify MCP tool: assigns each of a
 // list of items to exactly one of a fixed set of classes, using
 // the configured SystemOne decision model's "choice" question type, via
 // OpenRouter's SystemOne API.
@@ -46,7 +46,7 @@ import (
 )
 
 // ToolNameClassify is the MCP tool name registered for ClassifyHandler.
-const ToolNameClassify = "jev_classify"
+const ToolNameClassify = "classify"
 
 // Caps named verbatim in the project brief.
 const (
@@ -95,7 +95,7 @@ type Class struct {
 	Description string `json:"description" jsonschema:"What the class means."`
 }
 
-// ClassifyInput is the jev_classify tool's input schema.
+// ClassifyInput is the classify tool's input schema.
 type ClassifyInput struct {
 	Purpose       string  `json:"purpose,omitempty" jsonschema:"Shared context for the classification."`
 	Items         []Item  `json:"items" jsonschema:"1-64 {id, text} items; len(items)*len(classes) <= 8000."`
@@ -120,7 +120,7 @@ type ItemResult struct {
 	Status         string             `json:"status"`
 }
 
-// ClassifyOutput is the jev_classify tool's output schema.
+// ClassifyOutput is the classify tool's output schema.
 type ClassifyOutput struct {
 	Results        []ItemResult `json:"results"`
 	Model          string       `json:"model"`
@@ -129,7 +129,7 @@ type ClassifyOutput struct {
 	BudgetExceeded bool         `json:"budget_exceeded,omitempty"`
 }
 
-// ClassifyHandler implements the jev_classify tool.
+// ClassifyHandler implements the classify tool.
 type ClassifyHandler struct {
 	client           *openrouter.Client
 	model            string
@@ -156,10 +156,9 @@ func NewClassifyHandler(client *openrouter.Client, cfg config.Config, tracker *b
 func init() {
 	description := "Classify each of many items into exactly one of a fixed set of classes; returns " +
 		"{classification, confidence, decision} per item. For one pick among 2-6 options use " +
-		"jev_decide. Fails closed per item: bad answers are status=invalid_response, never guessed."
+		"decide. Fails closed per item: bad answers are status=invalid_response, never guessed."
 	registry.Register(registry.Tool{
 		Name:        "classify",
-		MCPName:     ToolNameClassify,
 		Description: description,
 		RegisterMCP: func(server *mcp.Server, deps *registry.Deps) {
 			h := NewClassifyHandler(deps.Client, deps.Config, deps.Budget, deps.Audit)
@@ -188,7 +187,7 @@ func (h *ClassifyHandler) Handle(ctx context.Context, _ *mcp.CallToolRequest, in
 	return nil, out, nil
 }
 
-// run is jev_classify's transport-agnostic core: everything from input
+// run is classify's transport-agnostic core: everything from input
 // validation through the SystemOne call, budget accounting, and audit
 // logging, independent of whether the caller is the MCP handler (Handle)
 // or the CLI subcommand (cli.go).
@@ -204,7 +203,7 @@ func (h *ClassifyHandler) run(ctx context.Context, in ClassifyInput) (ClassifyOu
 	inputHash := audit.HashValue(in)
 
 	if h.budget.SessionBudgetExceeded() {
-		refuseErr := fmt.Errorf("jev_classify: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
+		refuseErr := fmt.Errorf("classify: refusing call: session budget exhausted (spent $%.6f, cap $%.6f)", h.budget.Total(), h.maxUSDPerSession)
 		h.auditLog.Log(audit.Entry{
 			Tool: ToolNameClassify, Model: h.model, InputStateSHA256: inputHash,
 			Status: "error", LatencyMs: time.Since(start).Milliseconds(), Error: refuseErr.Error(),
@@ -242,7 +241,7 @@ func (h *ClassifyHandler) run(ctx context.Context, in ClassifyInput) (ClassifyOu
 			Status: "error", LatencyMs: latencyMs, Error: callErr.Error(),
 			ItemCount: len(in.Items),
 		})
-		return ClassifyOutput{}, fmt.Errorf("jev_classify: %w", callErr)
+		return ClassifyOutput{}, fmt.Errorf("classify: %w", callErr)
 	}
 
 	out := ClassifyOutput{Model: resp.Model, LatencyMs: latencyMs}
@@ -328,51 +327,51 @@ func margin(probs map[string]float64) float64 {
 // budget or making a network call.
 func validateInput(in ClassifyInput) error {
 	if len(in.Items) == 0 {
-		return fmt.Errorf("jev_classify: items must not be empty; provide an array of 1-64 {\"id\": <string>, \"text\": <string>} objects, e.g. [{\"id\": \"i1\", \"text\": \"...\"}]")
+		return fmt.Errorf("classify: items must not be empty; provide an array of 1-64 {\"id\": <string>, \"text\": <string>} objects, e.g. [{\"id\": \"i1\", \"text\": \"...\"}]")
 	}
 	if len(in.Items) > maxItems {
-		return fmt.Errorf("jev_classify: items has %d entries, exceeding the max of %d; classify fewer items per call", len(in.Items), maxItems)
+		return fmt.Errorf("classify: items has %d entries, exceeding the max of %d; classify fewer items per call", len(in.Items), maxItems)
 	}
 	if len(in.Classes) == 0 {
-		return fmt.Errorf("jev_classify: classes must not be empty; provide an array of 1-250 {\"id\": <string>, \"description\": <string>} objects defining the possible classes, e.g. [{\"id\": \"bug\", \"description\": \"a defect report\"}]")
+		return fmt.Errorf("classify: classes must not be empty; provide an array of 1-250 {\"id\": <string>, \"description\": <string>} objects defining the possible classes, e.g. [{\"id\": \"bug\", \"description\": \"a defect report\"}]")
 	}
 	if len(in.Classes) > maxClasses {
-		return fmt.Errorf("jev_classify: classes has %d entries, exceeding the max of %d; use fewer classes", len(in.Classes), maxClasses)
+		return fmt.Errorf("classify: classes has %d entries, exceeding the max of %d; use fewer classes", len(in.Classes), maxClasses)
 	}
 	if itemClassBudget := len(in.Items) * len(in.Classes); itemClassBudget > maxItemClassBudget {
-		return fmt.Errorf("jev_classify: items (%d) x classes (%d) = %d combinations, exceeding the max of %d; classify fewer items per call or use fewer classes", len(in.Items), len(in.Classes), itemClassBudget, maxItemClassBudget)
+		return fmt.Errorf("classify: items (%d) x classes (%d) = %d combinations, exceeding the max of %d; classify fewer items per call or use fewer classes", len(in.Items), len(in.Classes), itemClassBudget, maxItemClassBudget)
 	}
 	seenItems := make(map[string]bool, len(in.Items))
 	for i, item := range in.Items {
 		if strings.TrimSpace(item.ID) == "" {
-			return fmt.Errorf("jev_classify: items[%d].id must not be empty; each item needs a unique non-empty string id, e.g. \"i1\"", i)
+			return fmt.Errorf("classify: items[%d].id must not be empty; each item needs a unique non-empty string id, e.g. \"i1\"", i)
 		}
 		if seenItems[item.ID] {
-			return fmt.Errorf("jev_classify: items[%d].id: %q is already used by another item; every item needs a unique id", i, item.ID)
+			return fmt.Errorf("classify: items[%d].id: %q is already used by another item; every item needs a unique id", i, item.ID)
 		}
 		seenItems[item.ID] = true
 		if strings.TrimSpace(item.Text) == "" {
-			return fmt.Errorf("jev_classify: items[%d].text must not be empty; provide this item's text content to classify", i)
+			return fmt.Errorf("classify: items[%d].text must not be empty; provide this item's text content to classify", i)
 		}
 	}
 	seenClasses := make(map[string]bool, len(in.Classes))
 	for i, c := range in.Classes {
 		if strings.TrimSpace(c.ID) == "" {
-			return fmt.Errorf("jev_classify: classes[%d].id must not be empty; each class needs a unique non-empty string id, e.g. \"bug\"", i)
+			return fmt.Errorf("classify: classes[%d].id must not be empty; each class needs a unique non-empty string id, e.g. \"bug\"", i)
 		}
 		if seenClasses[c.ID] {
-			return fmt.Errorf("jev_classify: classes[%d].id: %q is already used by another class; every class needs a unique id", i, c.ID)
+			return fmt.Errorf("classify: classes[%d].id: %q is already used by another class; every class needs a unique id", i, c.ID)
 		}
 		seenClasses[c.ID] = true
 		if strings.TrimSpace(c.Description) == "" {
-			return fmt.Errorf("jev_classify: classes[%d].description must not be empty; describe what this class means so the model can tell it apart from the others", i)
+			return fmt.Errorf("classify: classes[%d].description must not be empty; describe what this class means so the model can tell it apart from the others", i)
 		}
 	}
 	if err := answers.ValidateAutoAccept("auto_accept", in.AutoAccept); err != nil {
-		return fmt.Errorf("jev_classify: %w", err)
+		return fmt.Errorf("classify: %w", err)
 	}
 	if in.MinimumMargin != 0 && (in.MinimumMargin < 0 || in.MinimumMargin > 1) {
-		return fmt.Errorf("jev_classify: minimum_margin must be in [0,1] if set, got %v; omit it to use the default of 0.5", in.MinimumMargin)
+		return fmt.Errorf("classify: minimum_margin must be in [0,1] if set, got %v; omit it to use the default of 0.5", in.MinimumMargin)
 	}
 	return nil
 }
