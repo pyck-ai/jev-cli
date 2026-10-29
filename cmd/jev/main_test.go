@@ -230,6 +230,10 @@ func TestNewServer_RegistersEveryToolExactlyOnce(t *testing.T) {
 		if strings.HasPrefix(tool.Name, "jev_") {
 			t.Errorf("MCP tool %q carries a jev_ prefix; the client namespaces tools with the server name", tool.Name)
 		}
+		a := tool.Annotations
+		if a == nil || !a.ReadOnlyHint || a.DestructiveHint == nil || *a.DestructiveHint || a.OpenWorldHint == nil || !*a.OpenWorldHint {
+			t.Errorf("MCP tool %q lacks hints readOnly=true, destructive=false, openWorld=true: %+v", tool.Name, a)
+		}
 	}
 	if len(res.Tools) != len(want) {
 		gotNames := make([]string, len(res.Tools))

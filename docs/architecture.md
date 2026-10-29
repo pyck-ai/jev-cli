@@ -91,7 +91,7 @@ one's tests can catch a behavior regression.
 `<name>`) whose `init()` registers itself — see `internal/tools/check`'s
 `check.go` for a compact reference implementation, or
 `internal/tools/score`'s `score.go` for the original tool this architecture
-was extracted from. Set `Run: registry.Runner(...)` in the `Register` call (what makes it batchable via `batch`; `cmd/jev`'s `TestEveryToolExceptDoctorAndBatchHasRun` enforces it). Then add one blank-import line to `cmd/jev/main.go`.
+was extracted from. Set `Run: registry.Runner(...)` in the `Register` call (what makes it batchable via `batch`; `cmd/jev`'s `TestEveryToolExceptDoctorAndBatchHasRun` enforces it). Pass `Annotations: registry.ToolHints()` to `mcp.AddTool` (read-only, non-destructive, open-world MCP hints; the tools-list test in `cmd/jev` fails without them). Then add one blank-import line to `cmd/jev/main.go`.
 
 **Removing a tool**: delete that package directory, then delete its
 blank-import line from `cmd/jev/main.go`.
