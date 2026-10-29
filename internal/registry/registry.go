@@ -235,3 +235,13 @@ func Lookup(name string) (Tool, bool) {
 	}
 	return Tool{}, false
 }
+
+// ToolHints returns the MCP annotations every jev tool carries. Each tool
+// is read-only for MCP purposes (it writes an audit log and spends model
+// budget but changes no user data), never destructive, and calls an
+// external model API (open world). IdempotentHint stays unset: the MCP
+// spec defines it only for tools that are not read-only.
+func ToolHints() *mcp.ToolAnnotations {
+	f, t := false, true
+	return &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: &f, OpenWorldHint: &t}
+}

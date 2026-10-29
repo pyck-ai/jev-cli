@@ -168,6 +168,7 @@ func init() {
 			mcp.AddTool(server, &mcp.Tool{
 				Name:        ToolNameScreen,
 				Description: description,
+				Annotations: registry.ToolHints(),
 			}, h.Handle)
 		},
 		RegisterCLI: func(root *cobra.Command, provider registry.DepsProvider) {
