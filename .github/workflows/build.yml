@@ -4,8 +4,8 @@ run-name: Build and push the jev-cli image
 # Weekdays at 14:00 UTC, plus every merge to main (see `push` below).
 on:
   schedule:
-    # Staggered across the pyck-ai image repos, which share self-hosted
-    # runners: baseimages 09:00, github-runner 11:00, flutter-rfw 13:00,
+    # Staggered across the pyck-ai image repos, which share the
+    # runner pools: baseimages 09:00, github-runner 11:00, flutter-rfw 13:00,
     # this repo 14:00. This is also after baseimages publishes the golang
     # and static images this one builds FROM, so a scheduled run picks up
     # the same day's base rather than yesterday's. Check the others before
@@ -36,14 +36,12 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@872196b8e373e9e9a9d8a2144bbb179d60d21b56 # main 2026-11-03
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@f8f8582b9bea936cac7325f44bb52c97d4261f3f # u/michael/runner-labels (pyck-ai/github-actions#103)
     with:
       registry: ghcr.io/pyck-ai
       # Distinct per-repo builder name so concurrent builds on the same
-      # self-hosted runner don't collide on a shared default builder.
+      # runner don't collide on a shared default builder.
       builder-name: jev-cli
-      # The unprivileged kata pool; the build legs use its rootless BuildKit.
-      runs-on: self-hosted-kata
     secrets: inherit
 
   # The one check a ruleset requires for this workflow (pyck-ai/guidelines
