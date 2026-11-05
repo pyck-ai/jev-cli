@@ -19,13 +19,13 @@ concurrency:
 # No default token scope. Every job below declares exactly what it needs.
 permissions: {}
 
-# The self-hosted-kata runner has task, go and gcc (for `go test -race`)
-# and no docker, which none of these tasks needs.
+# The firecracker runner has task, go and gcc (for `go test -race`). None of
+# these tasks needs docker, so the jobs do not ask for the `docker` label.
 jobs:
   lint:
     permissions:
       contents: read
-    runs-on: self-hosted-kata
+    runs-on: [pyck-ai, firecracker, standard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: task lint
@@ -33,7 +33,7 @@ jobs:
   test:
     permissions:
       contents: read
-    runs-on: self-hosted-kata
+    runs-on: [pyck-ai, firecracker, standard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: task test
@@ -41,7 +41,7 @@ jobs:
   compile:
     permissions:
       contents: read
-    runs-on: self-hosted-kata
+    runs-on: [pyck-ai, firecracker, standard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: task compile
@@ -53,7 +53,7 @@ jobs:
     if: always()
     needs: [lint, test, compile]
     permissions: {}
-    runs-on: self-hosted-kata
+    runs-on: [pyck-ai, firecracker, light]
     steps:
       - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
         with:
